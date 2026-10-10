@@ -4,7 +4,7 @@ This is an experimental source preview, not a finished installer. No live unlock
 
 Implemented: shared Swift workflow library; pinned compatibility profile; structured USB enumeration; private persisted sessions and process locks; native approval requests; guided SwiftUI app; profile-based downloads with measured byte progress, cancellation, size/hash validation and safe destinations; CLI and stdio MCP; portable assistant skill; MIT license; source/signing packaging scripts.
 
-Adapters implemented with injectable runners: UTM 5.0.6 owned-VM creation, compatible TWRP identification, named partition discovery, streamed private backups with mount/space/size/hash checks, unique SSH client credentials, VM-bound host-key pinning, verified guest validation asset staging and offline guest readiness. These are exercised with local fixtures, not validated live integration.
+Adapters implemented with injectable runners: UTM 5.0.6 owned-VM creation, compatible TWRP identification, named partition discovery, streamed private backups with mount/space/size/hash checks, unique SSH client credentials, VM-bound host-key pinning, verified guest validation asset staging and offline guest readiness. These are exercised with local fixtures. One fresh owned-VM creation and stopped-state reconciliation were also verified live; the guest and backup integrations remain unverified.
 
 Internal pilot code tests identity/rejection parsing and installation stop conditions. Current-invocation recovery log evidence is required; stale successes never authorize reboot. The reviewed standalone bounded unlock script remains a separate experimental developer tool with explicit execution, pinned hashes and exact ordinary-rejection classification. It is not called by the GUI/MCP.
 

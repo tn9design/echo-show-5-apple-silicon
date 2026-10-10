@@ -23,7 +23,7 @@ public struct UTMAdapter: Sendable {
           set ownershipToken to item 2 of argv
           tell application "\(literal)"
               if UTM version is not "5.0.6" then error "Unsupported UTM version"
-              set newVM to make new virtual machine with properties {backend:apple, configuration:{name:"EchoGuide " & ownershipToken, notes:"EchoGuide ownership: " & ownershipToken, memory:4096, cpu cores:4, os:linux, directory shares:{}, drives:{{guest size:12288}, {removable:true, source:isoImage}}, network interfaces:{{mode:shared}}, serial ports:{{interface:ptty}}, displays:{{dynamic resolution:true}}}}
+              set newVM to make new virtual machine with properties {backend:apple, configuration:{name:"EchoGuide " & ownershipToken, notes:"EchoGuide ownership: " & ownershipToken, memory:4096, cpu cores:4, os:linux, directory shares:{}, drives:{{guest size:12288}, {removable:true, source:isoImage}}, network interfaces:{{mode:shared}}, «class SrPt»:{{interface:ptty}}, displays:{{dynamic resolution:true}}}}
               return id of newVM
           end tell
       end run
@@ -44,7 +44,11 @@ public struct UTMAdapter: Sendable {
     guard result.exitCode == 0,
       let vm = UUID(uuidString: result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
     else {
-      throw AdapterError.commandFailed("UTM create; inspect ownership marker before retrying")
+      // UTM creation has no credentials. Keep its diagnostic available locally; exported
+      // workflow reports contain only the generic operation outcome, never this text.
+      let diagnostic = String(result.stderr.prefix(2048))
+      throw AdapterError.commandFailed(
+        "UTM create; inspect ownership marker before retrying. " + diagnostic)
     }
     return vm
   }

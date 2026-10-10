@@ -35,6 +35,11 @@ private struct UTMFixtureRunner: CommandRunning {
   }
 }
 final class UTMTests: XCTestCase {
+  func testCreationUsesConfigurationSerialFieldWithoutClassCollision() throws {
+    let script = try UTMAdapter.creationScript(application: app)
+    XCTAssertTrue(script.contains("«class SrPt»:{{interface:ptty}}"))
+    XCTAssertFalse(script.contains("serial ports:{{"))
+  }
   private let app = URL(fileURLWithPath: "/Applications/UTM.app")
   func testReconciliationDoesNotCreateWhenAbsent() async throws {
     let spec = OwnedVMSpecification()

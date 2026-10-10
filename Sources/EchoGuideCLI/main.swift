@@ -12,9 +12,24 @@ import Foundation
         root = URL(fileURLWithPath: args[1], isDirectory: true)
         args.removeFirst(2)
       }
-      guard args.count == 1 else { throw CLIError.usage }
+      guard
+        (args.count == 1 && !["prepare-workspace", "reconcile-workspace"].contains(args[0]))
+          || (args.count == 3 && args.first == "prepare-workspace")
+          || (args.count == 2 && args.first == "reconcile-workspace")
+      else {
+        throw CLIError.usage
+      }
       let engine = try WorkflowEngine(root: root)
       switch args[0] {
+      case "reconcile-workspace":
+        switch try await engine.reconcileWorkspace(utm: URL(fileURLWithPath: args[1])) {
+        case .absent: try emit(["result": "absent; creation intent retained"])
+        case .owned(let info): try emit(info)
+        }
+      case "prepare-workspace":
+        let id = try await engine.prepareWorkspace(
+          utm: URL(fileURLWithPath: args[1]), iso: URL(fileURLWithPath: args[2]))
+        try emit(["managedVMID": id.uuidString])
       case "inspect": try emit(try await engine.inspect())
       case "status": try emit(try engine.status())
       case "verify-recovery":
@@ -40,7 +55,7 @@ import Foundation
   enum CLIError: Error, CustomStringConvertible {
     case usage
     var description: String {
-      "Usage: EchoGuideCLI [--state-root DIRECTORY] inspect|status|verify-recovery|backup|request-unlock|request-install|report. Write requests require native app approval; they do not execute a write."
+      "Usage: echo-guide [--state-root DIRECTORY] inspect|status|verify-recovery|backup|request-unlock|request-install|report; or prepare-workspace UTM_APPLICATION DEBIAN_ISO; or reconcile-workspace UTM_APPLICATION. Workspace creation uses only the pinned profile and creates an isolated owned VM. Echo write requests require native app approval; they do not execute a write."
     }
   }
 }

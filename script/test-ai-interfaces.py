@@ -26,6 +26,9 @@ assert replies[3]['result'] == {}
 assert replies[4]['error']['code'] == -32602
 assert replies[5]['error']['code'] == -32602
 with tempfile.TemporaryDirectory(prefix='echoguide-cli-test-') as root:
+    for command in ['prepare-workspace', 'reconcile-workspace']:
+        missing = subprocess.run([str(bin_dir / 'echo-guide'), '--state-root', root, command], capture_output=True, text=True, timeout=20)
+        assert missing.returncode == 1 and 'Usage:' in missing.stderr
     status = subprocess.run([str(bin_dir / 'echo-guide'), '--state-root', root, 'status'], capture_output=True, text=True, check=True, timeout=20)
     assert json.loads(status.stdout)['phase'] == 'setup'
     denied = subprocess.run([str(bin_dir / 'echo-guide'), '--state-root', root, 'request-install'], capture_output=True, text=True, timeout=20)

@@ -4,7 +4,7 @@
 
 ## 1. Make the Linux workspace usable
 
-- Create a fresh VM through the adapter and record its ownership UUID.
+- Boot and install the first fresh VM created through the adapter; creation and stopped-state ownership reconciliation passed once. Create a second independent workspace after the first reaches readiness.
 - Validate keyboard/pointer input or the serial installer route, then install the pinned Debian baseline.
 - Enable translation and confirm it survives a guest restart.
 - Validate the implemented native serial login on the pinned Debian baseline. It makes one attempt using the temporary password entered in the app; failed or unknown prompts stop without retry.
