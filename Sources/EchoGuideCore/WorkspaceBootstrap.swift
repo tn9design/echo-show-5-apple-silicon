@@ -19,6 +19,7 @@ extension WorkflowEngine {
       try SerialLogin.validatePassword(password)
     }
     return try await operation("bootstrap_guest") {
+      try self.requireTranslationInspectionComplete()
       let state = try self.status()
       guard let text = state.vmID, let id = UUID(uuidString: text) else {
         throw GuideError.stopped("No registered app-owned workspace")
@@ -83,6 +84,7 @@ extension WorkflowEngine {
     -> GuestReadiness
   {
     try await operation("validate_guest") {
+      try self.requireTranslationInspectionComplete()
       let state = try self.status()
       guard let saved = state.guest, state.vmID == saved.vmID.uuidString else {
         throw GuideError.stopped("Bootstrap this owned guest before validation")

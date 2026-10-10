@@ -261,6 +261,10 @@ private enum GuideStep: String, CaseIterable, Identifiable {
             .font(.caption).foregroundStyle(.secondary)
           Button("Validate owned guest and original client…") { validateGuest() }
             .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
+          Button("Configure Linux translation…") { configureTranslation() }
+            .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
+          Text("After SSH bootstrap, this installs the reviewed translation dependencies in the owned Debian VM. It uses your password once for sudo. After success, gracefully stop and start the workspace, then validate the original client. It does not write to the Echo.")
+            .font(.caption).foregroundStyle(.secondary)
           Text("For validation, choose the original publisher fastboot binary. The app uses its bundled, hash-verified protocol helper and checks the binary’s pinned hash before an offline test; it does not contact the Echo.")
             .font(.caption).foregroundStyle(.secondary)
           Text("Successful trust acquisition is separate from Linux translation, client validation, and USB readiness. Do not treat it as an installation prerequisite pass.")
@@ -519,6 +523,24 @@ private enum GuideStep: String, CaseIterable, Identifiable {
         let readiness = try await engine.validateOwnedGuest(utm: utm, fastboot: fastboot, mockScript: mock, password: password)
         status = try encoded(readiness) + "\nThis is guest/client validation only. Echo USB assignment and exact device compatibility still require independent checks."
       } catch { status = "Guest validation stopped: \(error.localizedDescription). Inspect the owned serial console and session before another attempt." }
+      refresh()
+      busy = false
+    }
+  }
+
+  private func configureTranslation() {
+    guard guestConsoleReady, !guestPassword.isEmpty, let engine else { return }
+    let password = guestPassword
+    guestPassword = ""
+    guard let utm = selectWorkspaceUTM(message: "Select verified UTM for this owned workspace. Translation setup installs dependencies and persistent guest configuration.") else { return }
+    busy = true
+    operation = "Configuring Linux translation in the owned guest. Package downloads may take several minutes…"
+    guestConsoleReady = false
+    Task {
+      do {
+        try await engine.configureOwnedGuestTranslation(utm: utm, password: password)
+        status = "Linux translation setup completed. Gracefully stop and start this workspace, then validate the owned guest and original client. Workspace readiness has not yet been established."
+      } catch { status = "Guest translation setup stopped: \(error.localizedDescription). No automatic retry; inspect before another attempt." }
       refresh()
       busy = false
     }

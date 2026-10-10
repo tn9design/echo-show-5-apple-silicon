@@ -20,15 +20,16 @@ swift build "${build_options[@]}"
 products="$(swift build "${build_options[@]}" --show-bin-path)"
 binary="$products/EchoGuide"
 bundle="${TMPDIR:-/private/tmp}/EchoGuidePreview/EchoGuide.app"
-mkdir -p "$bundle/Contents/MacOS"
+mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp "$binary" "$bundle/Contents/MacOS/EchoGuide"
-# Native SwiftPM's Bundle.module lookup uses Bundle.main.bundleURL.
-# Keep resources in the app root so the preview also works without build files.
+cp Assets/EchoGuide.icns "$bundle/Contents/Resources/EchoGuide.icns"
+# SwiftPM's generated accessor searches Bundle.main.resourceURL in an app.
+# Use the conventional layout required by strict bundle signing.
 shopt -s nullglob
 for resources in "$products"/*.bundle; do
     resource_name="$(basename "$resources")"
-    rm -rf "$bundle/$resource_name"
-    cp -R "$resources" "$bundle/$resource_name"
+    rm -rf "$bundle/$resource_name" "$bundle/Contents/Resources/$resource_name"
+    cp -R "$resources" "$bundle/Contents/Resources/$resource_name"
 done
 cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -37,6 +38,7 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>EchoGuide</string>
 <key>CFBundleIdentifier</key><string>org.echoguide.preflight</string>
 <key>CFBundleName</key><string>EchoGuide</string>
+<key>CFBundleIconFile</key><string>EchoGuide</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>NSAppleEventsUsageDescription</key><string>EchoGuide creates and manages its isolated UTM Linux workspace.</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>

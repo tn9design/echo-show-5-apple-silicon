@@ -28,10 +28,15 @@ with zipfile.ZipFile(archive) as package:
                 'Sources/EchoGuideCore/NativePilotCoordinator.swift',
                 'Sources/EchoGuideCore/Resources/checkers-v1.json',
                 'Sources/EchoGuideCore/Resources/compare-mock.py',
+                'Sources/EchoGuideCore/Resources/setup-linux-translation.sh',
+                'Assets/EchoGuide-icon.png', 'Assets/EchoGuide.icns',
+                'script/build-icon.sh',
                 'skills/echo-guide/SKILL.md', 'script/automation.entitlements',
                 'tools/bounded-unlock.py']
     for path in required:
         assert 'EchoGuide-source/' + path in names, 'Missing source deliverable: ' + path
     entitlements = plistlib.loads(package.read('EchoGuide-source/script/automation.entitlements'))
+    icon = package.read('EchoGuide-source/Assets/EchoGuide.icns')
+    assert icon[:4] == b'icns' and int.from_bytes(icon[4:8], 'big') == len(icon), 'Invalid icon family'
     assert entitlements == {'com.apple.security.automation.apple-events': True}, 'Unexpected signing permissions'
 print('Source archive structure, deliverables and signing permissions passed')

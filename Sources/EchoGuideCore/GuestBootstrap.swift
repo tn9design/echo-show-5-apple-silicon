@@ -74,12 +74,17 @@ public enum GuestBootstrapProtocol {
     } else {
       clientInstallation = "client_state=read-only;"
     }
+    let addressRechecks = request.clientPublicKey == nil ? 10 : 0
+    // A running VM and a login prompt do not establish DHCP readiness. Only zero
+    // accepted addresses may wait during observation: ten one-second rechecks.
+    // Key authorization must recheck immediately and never enters this wait.
+    // Ambiguous addresses and failed network commands stop without another probe.
     // Every prerequisite failure emits a bounded, request-bound completion frame.
     // Keep the trap inside this subshell; never change the login shell's options.
     let failureHandler =
       "result=$?; if [ \"$result\" -ne 0 ]; then printf \"\\nECHOGUIDE-BEGIN %s %s\\nVERSION 1\\nERROR %s %s\\nECHOGUIDE-END %s %s\\n\" \"$owner\" \"$challenge\" \"$stage\" \"$result\" \"$owner\" \"$challenge\"; fi"
     let command =
-      "owner='\(owner)'; challenge='\(nonce)'; stage=identity; trap '\(failureHandler)' 0; set -eu; test \"$(id -un)\" = \(request.username); stage=home; test \"$HOME\" = \(home); stage=architecture; test \"$(uname -m)\" = aarch64; stage=host_key; host_key=$(cat /etc/ssh/ssh_host_ed25519_key.pub); stage=network; network=$(ip -4 -o addr show scope global); stage=address; address=$(printf '%s\\n' \"$network\" | awk '{split($4,a,\"/\"); split(a[1],b,\".\"); if (b[1]==10 || (b[1]==172 && b[2]>=16 && b[2]<=31) || (b[1]==192 && b[2]==168)) print a[1]}'); test \"$(printf '%s\\n' \"$address\" | wc -l)\" -eq 1; test -n \"$address\"; stage=client_authorization; \(clientInstallation) printf '\\nECHOGUIDE-BEGIN %s %s\\nVERSION 1\\nUSER \(request.username)\\nARCH aarch64\\nIPV4 %s\\nHOST_KEY %s\\nCLIENT_AUTH %s\\nECHOGUIDE-END %s %s\\n' '\(owner)' '\(nonce)' \"$address\" \"$host_key\" \"$client_state\" '\(owner)' '\(nonce)'"
+      "owner='\(owner)'; challenge='\(nonce)'; stage=identity; trap '\(failureHandler)' 0; set -eu; test \"$(id -un)\" = \(request.username); stage=home; test \"$HOME\" = \(home); stage=architecture; test \"$(uname -m)\" = aarch64; stage=host_key; host_key=$(cat /etc/ssh/ssh_host_ed25519_key.pub); remaining=\(addressRechecks); while :; do stage=network; network=$(ip -4 -o addr show scope global); stage=address; address=$(printf '%s\\n' \"$network\" | awk '{split($4,a,\"/\"); split(a[1],b,\".\"); if (b[1]==10 || (b[1]==172 && b[2]>=16 && b[2]<=31) || (b[1]==192 && b[2]==168)) print a[1]}'); if [ -n \"$address\" ]; then test \"$(printf '%s\\n' \"$address\" | wc -l)\" -eq 1; break; fi; test \"$remaining\" -gt 0; remaining=$((remaining - 1)); sleep 1; done; stage=client_authorization; \(clientInstallation) printf '\\nECHOGUIDE-BEGIN %s %s\\nVERSION 1\\nUSER \(request.username)\\nARCH aarch64\\nIPV4 %s\\nHOST_KEY %s\\nCLIENT_AUTH %s\\nECHOGUIDE-END %s %s\\n' '\(owner)' '\(nonce)' \"$address\" \"$host_key\" \"$client_state\" '\(owner)' '\(nonce)'"
     return "( " + command + " )\n"
   }
   /// Console echo/prompts outside the frame are permitted; all framed fields are exact and ordered.

@@ -672,6 +672,7 @@ extension WorkflowEngine {
   }
   private func changeOwnedWorkspace(utm: URL, start: Bool) async throws -> OwnedVMInfo {
     try await operation(start ? "start_workspace" : "stop_workspace") {
+      try self.requireTranslationInspectionComplete()
       try self.store.transaction { $0.guest?.ready = false }
       let state = try self.status()
       guard let text = state.vmID, let id = UUID(uuidString: text) else {

@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import unittest
 
-SCRIPT = Path(__file__).with_name("setup-linux-translation.sh")
+SCRIPT = Path(__file__).resolve().parent.parent / "Sources/EchoGuideCore/Resources/setup-linux-translation.sh"
 
 class TranslationConfigurationTests(unittest.TestCase):
     def test_shell_syntax(self):

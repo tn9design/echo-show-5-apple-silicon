@@ -7,7 +7,7 @@ output_dir=${1:-"$repo_root/dist"}
 mkdir -p "$output_dir" "$stage_root/EchoGuide-source"
 output_dir=$(cd "$output_dir" && pwd)
 # Explicit source allowlist: never include sessions, backups, guest keys, or images.
-for item in Package.swift README.md LICENSE hashes.json Sources Tests docs skills script tools .github; do
+for item in Package.swift README.md LICENSE hashes.json Assets Sources Tests docs skills script tools .github; do
     if [ -e "$repo_root/$item" ]; then COPYFILE_DISABLE=1 cp -R "$repo_root/$item" "$stage_root/EchoGuide-source/"; fi
 done
 # Strip external-drive metadata only from the disposable copy, never the checkout.
@@ -37,10 +37,11 @@ bin_dir=$(swift build --disable-sandbox -c release --scratch-path "$stage_root/b
 app="$stage_root/EchoGuide.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin_dir/EchoGuide" "$app/Contents/MacOS/"
+cp Assets/EchoGuide.icns "$app/Contents/Resources/EchoGuide.icns"
 cp "$bin_dir/echo-guide" "$bin_dir/echo-guide-mcp" "$app/Contents/MacOS/"
 # SwiftPM-generated resource bundles accompany the executable.
 for bundle in "$bin_dir"/*.bundle; do
-    [ -e "$bundle" ] && cp -R "$bundle" "$app/"
+    [ -e "$bundle" ] && cp -R "$bundle" "$app/Contents/Resources/"
 done
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -48,6 +49,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>org.echoguide.preflight</string>
 <key>CFBundleName</key><string>EchoGuide</string>
+<key>CFBundleIconFile</key><string>EchoGuide</string>
 <key>CFBundleExecutable</key><string>EchoGuide</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>

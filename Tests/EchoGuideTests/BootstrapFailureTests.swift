@@ -8,6 +8,7 @@ final class BootstrapFailureTests: XCTestCase {
     let fixture = """
     HOME=/home/echotest
     export HOME
+    sleep() { :; }
     id() { printf '%s\\n' echotest; }
     uname() { printf '%s\\n' aarch64; }
     cat() { test "$1" = /etc/ssh/ssh_host_ed25519_key.pub || return 99; printf '%s\\n' '\(key) fixture'; }
