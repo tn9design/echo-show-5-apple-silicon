@@ -58,7 +58,8 @@ enum NativePilotComposition {
   /// No app entry point calls this factory. An explicit internal experimental
   /// opt-in is required; wider release evidence is a separate promotion decision.
   static func make(engine: WorkflowEngine, requestID: UUID, selection: NativePilotSelection,
-                   window: NSWindow?, gate: NativePilotGate = .disabled) throws -> NativePilotOwner {
+                   window: NSWindow?, gate: NativePilotGate = .disabled,
+                   progress: (@Sendable (NativePilotProgress) -> Void)? = nil) throws -> NativePilotOwner {
     guard gate == .experimentalOptIn else { throw GuideError.stopped("Native pilot composition is disabled") }
     let state = try engine.status()
     guard let request = state.pendingApproval, request.id == requestID else {
@@ -90,7 +91,7 @@ enum NativePilotComposition {
     }
     guard let window else { throw GuideError.stopped("A real owning native window is required") }
     let dispatcher = NativePilotDispatcher(engine: engine, gate: gate,
-      environment: environment, unlockTransport: transport)
+      environment: environment, unlockTransport: transport, progress: progress)
     let controller = NativeApprovalController(engine: engine, gate: gate, presenter: { [weak window] summary in
       guard let window else { throw GuideError.stopped("Native owning window closed") }
       let alert = NSAlert()
@@ -112,11 +113,11 @@ enum NativePilotComposition {
       } onCancel: {
         Task { @MainActor in sheet.cancel() }
       }
-    }, dispatch: { confirmedID, confirmedSelection in
+    }, dispatch: { confirmedID, confirmedSelection, lease in
       guard confirmedID == requestID, confirmedSelection == selection else {
         throw GuideError.stopped("Native selection binding changed")
       }
-      return try await dispatcher.dispatch(nativeConfirmedRequestID: confirmedID)
+      return try await dispatcher.dispatch(nativeConfirmedRequestID: confirmedID, nativeLease: lease)
     })
     return NativePilotOwner(controller: controller, window: window)
   }

@@ -1,5 +1,11 @@
 import Foundation
 
+public struct NativePilotProgress: Sendable {
+  public let attempts: Int
+  public let poweredWaitElapsedSeconds: Int
+  public let poweredWaitRequiredSeconds: Int
+}
+
 enum NativePilotGate: Sendable { case disabled, experimentalOptIn }
 struct NativePilotEnvironmentProof: Sendable {
   let host: HostInspection
@@ -20,15 +26,17 @@ struct NativePilotDispatcher: Sendable {
   let environment: @Sendable (SessionRecord) async throws -> NativePilotEnvironmentProof
   let unlockTransport: (any UnlockTransport)?
   let clock: any UnlockClock
+  let progress: (@Sendable (NativePilotProgress) -> Void)?
 
   init(engine: WorkflowEngine, gate: NativePilotGate = .disabled,
        environment: @escaping @Sendable (SessionRecord) async throws -> NativePilotEnvironmentProof,
-       unlockTransport: (any UnlockTransport)? = nil, clock: any UnlockClock = PoweredWaitClock()) {
+       unlockTransport: (any UnlockTransport)? = nil, clock: any UnlockClock = PoweredWaitClock(),
+       progress: (@Sendable (NativePilotProgress) -> Void)? = nil) {
     self.engine = engine; self.gate = gate; self.environment = environment
-    self.unlockTransport = unlockTransport; self.clock = clock
+    self.unlockTransport = unlockTransport; self.clock = clock; self.progress = progress
   }
 
-  func dispatch(nativeConfirmedRequestID: UUID) async throws -> NativePilotResult {
+  func dispatch(nativeConfirmedRequestID: UUID, nativeLease: NativeConfirmationLease? = nil) async throws -> NativePilotResult {
     guard gate == .experimentalOptIn else {
       throw GuideError.stopped("Native experimental pilot is disabled")
     }
@@ -57,12 +65,14 @@ struct NativePilotDispatcher: Sendable {
     case .unlock:
       guard let unlockTransport else { throw GuideError.stopped("Authenticated unlock transport is missing") }
       return .recoveryInspectionRequired(try await engine.unlockPinnedDevice(
-        requestID: nativeConfirmedRequestID, transport: unlockTransport, clock: clock,
-        hostPrerequisite: check))
+        requestID: nativeConfirmedRequestID, transport: unlockTransport, clock: clock, nativeLease: nativeLease,
+        hostPrerequisite: check, progress: { tick in
+          progress?(NativePilotProgress(attempts: tick.attempts, poweredWaitElapsedSeconds: tick.poweredWaitElapsedSeconds, poweredWaitRequiredSeconds: tick.poweredWaitRequiredSeconds))
+        }))
     case .install:
       guard let adb = state.adbPath else { throw GuideError.stopped("Configured recovery ADB is missing") }
       try await engine.installPinnedROM(requestID: nativeConfirmedRequestID,
-        adb: URL(fileURLWithPath: adb), hostPrerequisite: check)
+        adb: URL(fileURLWithPath: adb), nativeLease: nativeLease, hostPrerequisite: check)
       return .installedAwaitingUserStartup
     }
   }

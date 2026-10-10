@@ -39,7 +39,7 @@ public struct UTMAdapter: Sendable {
       executable: "/usr/bin/osascript",
       arguments: ["-e", script, verifiedISO.path, specification.ownershipID.uuidString])
     if result.exitCode != 0 && result.stderr.contains("(-1743)") {
-      throw GuideError.stopped("Automation permission denied before VM creation")
+      throw BackendFailure(.permissionDenied, "Automation permission denied before VM creation")
     }
     guard result.exitCode == 0,
       let vm = UUID(uuidString: result.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -187,11 +187,8 @@ extension UTMAdapter {
         "-e", script, specification.ownershipID.uuidString, expectedVMID?.uuidString ?? "",
       ])
     guard result.exitCode == 0 else {
-      throw GuideError.stopped(
-        result.stderr.contains("(-1743)")
-          ? "UTM Automation permission denied"
-          : "Owned VM operation failed; preserve creation intent and inspect ownership markers. "
-            + String(result.stderr.prefix(2048)))
+      if result.stderr.contains("(-1743)") { throw BackendFailure(.permissionDenied, "UTM Automation permission denied") }
+      throw GuideError.stopped("Owned VM operation failed; preserve creation intent and inspect ownership markers. " + String(result.stderr.prefix(2048)))
     }
     let reconciled = try Self.parseInfo(result.stdout, expectedVMID: expectedVMID)
     if action != .info, reconciled == .absent {
@@ -269,10 +266,8 @@ extension UTMAdapter {
       executable: "/usr/bin/osascript",
       arguments: ["-e", script, specification.ownershipID.uuidString, vmID.uuidString])
     guard result.exitCode == 0 else {
-      throw GuideError.stopped(
-        result.stderr.contains("(-1743)")
-          ? "UTM Automation permission denied"
-          : "Owned serial channel unavailable; leave VM and ownership binding intact")
+      if result.stderr.contains("(-1743)") { throw BackendFailure(.permissionDenied, "UTM Automation permission denied") }
+      throw BackendFailure(.inspectionUnavailable, "Owned serial channel unavailable; leave VM and ownership binding intact")
     }
     let fields = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines).split(
       separator: "\t", omittingEmptySubsequences: false)

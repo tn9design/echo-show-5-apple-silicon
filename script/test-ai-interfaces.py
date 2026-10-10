@@ -29,6 +29,14 @@ with tempfile.TemporaryDirectory(prefix='echoguide-cli-test-') as root:
     for command in ['prepare-workspace', 'reconcile-workspace', 'start-workspace', 'stop-workspace']:
         missing = subprocess.run([str(bin_dir / 'echo-guide'), '--state-root', root, command], capture_output=True, text=True, timeout=20)
         assert missing.returncode == 1 and 'Usage:' in missing.stderr
+    invalid_root = pathlib.Path(root, 'private-destination-must-not-appear')
+    invalid_root.write_text('not a state directory')
+    invalid = subprocess.run([str(bin_dir / 'echo-guide'), '--state-root', str(invalid_root), 'status'], capture_output=True, text=True, timeout=20)
+    assert invalid.returncode == 1 and not invalid.stdout
+    diagnostic = json.loads(invalid.stderr)
+    assert diagnostic['code'] == 'operation_failed'
+    assert str(invalid_root) not in invalid.stderr and root not in invalid.stderr
+    assert set(diagnostic) == {'code', 'message'}
     status = subprocess.run([str(bin_dir / 'echo-guide'), '--state-root', root, 'status'], capture_output=True, text=True, check=True, timeout=20)
     assert json.loads(status.stdout)['phase'] == 'setup'
     wait = subprocess.run([str(bin_dir / 'echo-guide'), '--state-root', root, 'powered-wait-status'], capture_output=True, text=True, check=True, timeout=20)

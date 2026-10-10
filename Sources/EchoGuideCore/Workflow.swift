@@ -198,7 +198,7 @@ public final class WorkflowEngine: @unchecked Sendable {
     let arch = try await r.run(executable: "/usr/bin/uname", arguments: ["-m"])
     let os = try await r.run(executable: "/usr/bin/sw_vers", arguments: ["-productVersion"])
     guard arch.exitCode == 0, os.exitCode == 0 else {
-      throw GuideError.stopped("Mac architecture or operating-system inspection failed; backend support is unknown")
+      throw BackendFailure(.inspectionUnavailable, "Mac architecture or operating-system inspection failed; backend support is unknown")
     }
     let usb = try await r.run(executable: "/usr/sbin/ioreg", arguments: ["-a", "-p", "IOUSB"])
     let a = arch.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -335,13 +335,13 @@ extension WorkflowEngine {
     guard fd >= 0 else { throw GuideError.stopped("Cannot acquire operation lock") }
     defer { close(fd) }
     guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
-      throw GuideError.stopped("Another operation is active")
+      throw BackendFailure(.concurrentOperation, "Another operation is active")
     }
     defer { flock(fd, LOCK_UN) }
     let id = UUID()
     try store.transaction { s in
       guard s.operations.allSatisfy({ $0.completedAt != nil }) else {
-        throw GuideError.stopped("An interrupted operation requires inspection")
+        throw BackendFailure(.interruptedOperation, "An interrupted operation requires inspection")
       }
       s.operations.append(OperationRecord(id: id, action: action, startedAt: Date()))
     }
@@ -387,12 +387,12 @@ extension WorkflowEngine {
       do {
         id = try await UTMAdapter(runner: self.runner, application: utm).create(
           specification: spec, verifiedISO: iso)
-      } catch GuideError.stopped(let reason)
-        where reason == "Automation permission denied before VM creation"
+      } catch let failure as BackendFailure
+        where failure.code == .permissionDenied
       {
         try FileManager.default.removeItem(at: intent)
-        throw GuideError.stopped(
-          reason + ". Enable UTM Automation permission, then explicitly retry.")
+        throw BackendFailure(.permissionDenied,
+          "Automation permission denied before VM creation. Enable UTM Automation permission, then explicitly retry.")
       }
 
       try self.store.transaction {
@@ -472,14 +472,14 @@ extension WorkflowEngine {
     guard fd >= 0 else { throw GuideError.stopped("Cannot acquire operation lock") }
     guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
       close(fd)
-      throw GuideError.stopped("Another operation is active")
+      throw BackendFailure(.concurrentOperation, "Another operation is active")
     }
     let record = OperationRecord(id: UUID(), action: "backup", startedAt: Date())
     let configuration: (String, String)
     do {
       configuration = try store.transaction { state in
         guard state.operations.allSatisfy({ $0.completedAt != nil }) else {
-          throw GuideError.stopped("An interrupted operation requires inspection")
+          throw BackendFailure(.interruptedOperation, "An interrupted operation requires inspection")
         }
         guard state.phase == .recovery, state.device != nil else {
           throw GuideError.stopped("Compatible recovery has not been verified")

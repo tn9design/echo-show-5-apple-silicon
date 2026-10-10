@@ -51,7 +51,14 @@ import Foundation
       default: throw CLIError.usage
       }
     } catch {
-      FileHandle.standardError.write(Data("EchoGuide: \(error)\n".utf8))
+      if let usage = error as? CLIError {
+        FileHandle.standardError.write(Data("EchoGuide: \(usage.description)\n".utf8))
+      } else {
+        let diagnostic = BackendDiagnostic(error: error)
+        let data = (try? JSONEncoder().encode(diagnostic)) ?? Data("{\"code\":\"operation_failed\",\"message\":\"The operation failed; inspect local state.\"}".utf8)
+        FileHandle.standardError.write(data)
+        FileHandle.standardError.write(Data("\n".utf8))
+      }
       exit(1)
     }
   }

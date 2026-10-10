@@ -4,9 +4,10 @@ extension WorkflowEngine {
   /// Internal pilot integration only. There is no public app/CLI/MCP dispatcher.
   /// The native release gate remains closed independently of this tested sequence.
   func installPinnedROM(requestID: UUID, adb: URL,
+      nativeLease: NativeConfirmationLease? = nil,
       hostPrerequisite: (@Sendable (SessionRecord) async throws -> Void)? = nil) async throws {
     let log = store.root.appendingPathComponent("install-recovery.log")
-    try await withFreshConsumedApproval(requestID: requestID, validator: { state in
+    try await withFreshConsumedApproval(requestID: requestID, nativeLease: nativeLease, validator: { state in
       try await hostPrerequisite?(state)
       guard adb.isFileURL, adb.path.hasPrefix("/"), state.adbPath == adb.path,
         state.phase == .backedUp, state.profileID == self.profile.id,

@@ -21,7 +21,7 @@ final class NativeApprovalControllerTests: XCTestCase {
   private func controller(_ e: WorkflowEngine, count: ApprovalDispatchCounter,
     gate: NativePilotGate = .experimentalOptIn,
     presenter: @escaping NativeApprovalController.Presenter) -> NativeApprovalController {
-    NativeApprovalController(engine: e, gate: gate, presenter: presenter, dispatch: { _, _ in
+    NativeApprovalController(engine: e, gate: gate, presenter: presenter, dispatch: { _, _, _ in
       await count.called()
       return .recoveryInspectionRequired(UnlockOutcome(attempts: 1, reason: "fixture"))
     }, validateSelection: { _, _ in })
@@ -56,7 +56,7 @@ final class NativeApprovalControllerTests: XCTestCase {
     let count = ApprovalDispatchCounter()
     let c = NativeApprovalController(engine: e, gate: .experimentalOptIn, presenter: { _ in
       XCTFail("Expired request shown"); return .confirm
-    }, dispatch: { _, _ in await count.called(); return .installedAwaitingUserStartup },
+    }, dispatch: { _, _, _ in await count.called(); return .installedAwaitingUserStartup },
       validateSelection: { _, _ in }, now: { req.createdAt.addingTimeInterval(301) })
     do { _ = try await c.confirm(requestID: req.id, selection: selection); XCTFail("Expired") } catch {}
     let calls = await count.count(); XCTAssertEqual(calls, 0)
@@ -103,7 +103,7 @@ final class NativeApprovalControllerTests: XCTestCase {
     let c = NativeApprovalController(engine: e, gate: .experimentalOptIn, presenter: { summary in
       XCTAssertEqual(summary.selection, expected); XCTAssertEqual(summary.evidenceFingerprint, req.prerequisitesDigest)
       return .confirm
-    }, dispatch: { id, selected in
+    }, dispatch: { id, selected, _ in
       XCTAssertEqual(id, req.id); XCTAssertEqual(selected, expected); await count.called()
       return .recoveryInspectionRequired(UnlockOutcome(attempts: 1, reason: "fixture"))
     }, validateSelection: { _, _ in })

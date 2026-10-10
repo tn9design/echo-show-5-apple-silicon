@@ -24,6 +24,13 @@ private actor NativePilotFixture: UnlockTransport, UnlockClock {
   func sleep(seconds: Int) async throws {}
   func poweredWaitSecond() async throws {}
 }
+private final class NativeProgressRecorder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var ticks: [NativePilotProgress] = []
+  func append(_ tick: NativePilotProgress) { lock.lock(); defer { lock.unlock() }; ticks.append(tick) }
+  func values() -> [NativePilotProgress] { lock.lock(); defer { lock.unlock() }; return ticks }
+}
+
 final class NativePilotDispatcherTests: XCTestCase {
   private func fixture() throws -> (WorkflowEngine, ApprovalRequest) {
     let e = try WorkflowEngine(root: URL(fileURLWithPath: "/private/tmp").appendingPathComponent(UUID().uuidString))
@@ -91,13 +98,15 @@ final class NativePilotDispatcherTests: XCTestCase {
   }
   func testExperimentalCompositionNeverCallsTimeoutOrResponseSuccess() async throws {
     let (e, req) = try fixture(); defer { try? FileManager.default.removeItem(at: e.store.root) }
-    let f = NativePilotFixture(); let host = host(true)
+    let f = NativePilotFixture(); let host = host(true); let progress = NativeProgressRecorder()
     let dispatcher = NativePilotDispatcher(engine: e, gate: .experimentalOptIn, environment: { current in
       NativePilotEnvironmentProof(host: host, guest: current.guest!)
-    }, unlockTransport: f, clock: f)
+    }, unlockTransport: f, clock: f, progress: { progress.append($0) })
     let result = try await dispatcher.dispatch(nativeConfirmedRequestID: req.id)
     guard case .recoveryInspectionRequired(let outcome) = result else { return XCTFail("Claimed install") }
     XCTAssertEqual(outcome.attempts, 1)
+    XCTAssertEqual(progress.values().map(\.poweredWaitElapsedSeconds), Array(0...300))
+    XCTAssertTrue(progress.values().allSatisfy { $0.attempts == 1 && $0.poweredWaitRequiredSeconds == 300 })
     XCTAssertNil(try e.status().pendingApproval); XCTAssertEqual(try e.status().phase, .inspectionRequired)
     XCTAssertThrowsError(try e.approve(requestID: req.id))
   }
@@ -143,10 +152,12 @@ extension NativePilotDispatcherTests {
     }
     let request = try engine.requestApproval(action: .install)
     let host = host(true)
-    let dispatcher = NativePilotDispatcher(engine: engine, gate: .experimentalOptIn, environment: { _ in NativePilotEnvironmentProof(host: host, guest: nil) })
+    let progress = NativeProgressRecorder()
+    let dispatcher = NativePilotDispatcher(engine: engine, gate: .experimentalOptIn, environment: { _ in NativePilotEnvironmentProof(host: host, guest: nil) }, progress: { progress.append($0) })
     let result = try await dispatcher.dispatch(nativeConfirmedRequestID: request.id)
     guard case .installedAwaitingUserStartup = result else { return XCTFail("Expected installation") }
     XCTAssertEqual(try engine.status().phase, .installed)
+    XCTAssertTrue(progress.values().isEmpty)
     XCTAssertNil(try engine.status().vmID); XCTAssertNil(try engine.status().guest)
   }
   func testUnlockCannotUseHostOnlyProofOrAbsentTransport() async throws {

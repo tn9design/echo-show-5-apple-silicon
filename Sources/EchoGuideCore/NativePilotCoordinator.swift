@@ -65,14 +65,15 @@ public final class NativePilotCoordinator {
   }
 
   public func review(requestID: UUID, utm: URL? = nil,
-                     unlockPayload: URL? = nil) async throws -> NativePilotReviewResult {
+                     unlockPayload: URL? = nil,
+                     progress: (@Sendable (NativePilotProgress) -> Void)? = nil) async throws -> NativePilotReviewResult {
     guard !closed else { throw GuideError.stopped("Native pilot coordinator is permanently closed") }
     guard Self.buildMode == .experimentalPilot, let window, window.isVisible, owner == nil else {
       throw GuideError.stopped("Native pilot build, owning window and exclusive native review are required")
     }
     let selection = NativePilotSelection(utm: utm, unlockPayload: unlockPayload)
     let currentOwner = try NativePilotComposition.make(engine: engine, requestID: requestID,
-      selection: selection, window: window, gate: .experimentalOptIn)
+      selection: selection, window: window, gate: .experimentalOptIn, progress: progress)
     owner = currentOwner
     defer { currentOwner.close(); owner = nil }
     guard let result = try await currentOwner.controller.confirm(requestID: requestID, selection: selection) else {

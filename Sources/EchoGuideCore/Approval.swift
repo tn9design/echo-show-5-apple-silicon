@@ -70,7 +70,7 @@ public enum ApprovalPolicy {
           request.id == requestID, request.sessionID == current.sessionID,
           request.action == current.action, request.device == current.device,
           request.prerequisitesDigest == (try current.digest()) else {
-      throw GuideError.stopped("Approval expired or prerequisites changed")
+      throw BackendFailure(.approvalChanged, "Approval expired or prerequisites changed")
     }
   }
 }

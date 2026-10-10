@@ -14,6 +14,10 @@ public struct GuestReadiness: Codable, Sendable, Equatable {
   public let ready: Bool
   public let reason: String
   public let hostKeyFingerprint: String?
+  public let code: BackendErrorCode?
+  public init(ready: Bool, reason: String, hostKeyFingerprint: String?, code: BackendErrorCode? = nil) {
+    self.ready = ready; self.reason = reason; self.hostKeyFingerprint = hostKeyFingerprint; self.code = code
+  }
 }
 public struct GuestAdapter: Sendable {
   public static func bundledValidationHelper() throws -> URL {
@@ -23,7 +27,7 @@ public struct GuestAdapter: Sendable {
     let expected = try CompatibilityProfile.bundled().artifact(named: "compare-mock.py").sha256
     let observed = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }
       .joined()
-    guard observed == expected else { throw GuideError.stopped("Bundled helper hash mismatch") }
+    guard observed == expected else { throw BackendFailure(.hashMismatch, "Bundled helper hash mismatch") }
     return url
   }
   public let runner: any CommandRunning
@@ -155,7 +159,7 @@ public struct GuestAdapter: Sendable {
     let profile = try CompatibilityProfile.bundled()
     guard try hash(fastboot) == profile.artifact(named: "fastboot").sha256,
       try hash(mockScript) == profile.artifact(named: "compare-mock.py").sha256
-    else { throw GuideError.stopped("Validation asset hash mismatch") }
+    else { throw BackendFailure(.hashMismatch, "Validation asset hash mismatch") }
     let setup = try await runner.run(
       executable: "/usr/bin/ssh",
       arguments: try arguments(
@@ -193,6 +197,14 @@ public struct GuestAdapter: Sendable {
     }
   }
   /// Fixed remote preflight codes distinguish missing translation from SSH transport failures.
+  static func readinessFailureCode(exitCode: Int32) -> BackendErrorCode {
+    switch exitCode {
+    case 41: return .unsupportedGuest
+    case 42, 43: return .guestTranslationMissing
+    case 255: return .guestAuthenticationRequired
+    default: return .operationFailed
+    }
+  }
   static func readinessFailure(exitCode: Int32) -> String {
     switch exitCode {
     case 41: return "The workspace is not ARM64 Linux. Use the pinned ARM64 Debian workspace."
@@ -213,7 +225,7 @@ public struct GuestAdapter: Sendable {
         ready: false,
         reason:
           "Obtain owned-serial host-key evidence and create the client identity before connecting.",
-        hostKeyFingerprint: nil)
+        hostKeyFingerprint: nil, code: .guestAuthenticationRequired)
     }
     let profile = try CompatibilityProfile.bundled()
     let clientHash = try profile.artifact(named: "fastboot").sha256
@@ -228,7 +240,7 @@ public struct GuestAdapter: Sendable {
         ready: false,
         reason:
           Self.readinessFailure(exitCode: result.exitCode),
-        hostKeyFingerprint: nil)
+        hostKeyFingerprint: nil, code: Self.readinessFailureCode(exitCode: result.exitCode))
     }
     guard result.stdout.contains("fastboot version 28.0.0"),
       let firstBrace = result.stdout.firstIndex(of: "{"),

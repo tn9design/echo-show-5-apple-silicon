@@ -66,9 +66,11 @@ extension WorkflowEngine {
   /// all attempts, and the powered wait; interrupted writes are never replayed.
   func unlockPinnedDevice(requestID: UUID, transport: any UnlockTransport,
       clock: any UnlockClock,
+      nativeLease: NativeConfirmationLease? = nil,
       hostPrerequisite: (@Sendable (SessionRecord) async throws -> Void)? = nil,
-      progress: (@Sendable (UnlockProgress) -> Void)? = nil) async throws -> UnlockOutcome {
-    try await withFreshConsumedApproval(requestID: requestID, validator: { state in
+      progress: (@Sendable (UnlockProgress) -> Void)? = nil,
+      journalWriter: (@Sendable (PoweredWaitRecord, URL) throws -> Void)? = nil) async throws -> UnlockOutcome {
+    try await withFreshConsumedApproval(requestID: requestID, nativeLease: nativeLease, validator: { state in
       try await hostPrerequisite?(state)
       guard state.phase == .identified, state.pendingApproval?.action == .unlock,
         let device = state.device, device.product == self.profile.product,
@@ -98,8 +100,10 @@ extension WorkflowEngine {
       var reason = "Known rejection limit reached; recovery inspection required"
       let waitURL = self.store.root.appendingPathComponent("unlock-powered-wait.json")
       func recordWait(_ elapsed: Int) throws {
-        let data = try JSONEncoder().encode(PoweredWaitRecord(requestID: consumed.requestID,
-          requiredSeconds: 300, elapsedSeconds: elapsed, complete: elapsed == 300))
+        let record = PoweredWaitRecord(requestID: consumed.requestID,
+          requiredSeconds: 300, elapsedSeconds: elapsed, complete: elapsed == 300)
+        if let journalWriter { try journalWriter(record, waitURL); return }
+        let data = try JSONEncoder().encode(record)
         try data.write(to: waitURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: waitURL.path)
         let file = open(waitURL.path, O_RDONLY | O_NOFOLLOW)
@@ -129,12 +133,18 @@ extension WorkflowEngine {
       }
       progress?(UnlockProgress(attempts: attempts, poweredWaitElapsedSeconds: 0,
                                poweredWaitRequiredSeconds: 300))
+      var firstJournalError: (any Error)?
       for elapsed in 1...300 {
         do { try await clock.poweredWaitSecond() }
         catch { throw GuideError.stopped("Powered wait incomplete; keep wall power connected for at least five minutes and inspect") }
-        try recordWait(elapsed)
+        do { try recordWait(elapsed) }
+        catch { if firstJournalError == nil { firstJournalError = error } }
         progress?(UnlockProgress(attempts: attempts, poweredWaitElapsedSeconds: elapsed,
                                  poweredWaitRequiredSeconds: 300))
+      }
+      if firstJournalError != nil {
+        throw BackendFailure(.interruptedOperation,
+          "Powered wait completed, but its journal could not be verified. Keep the device state unchanged and inspect before continuing.")
       }
       // Approval consumption already committed inspectionRequired. No result,
       // including timeout or exit zero, is evidence of recovery or unlock success.

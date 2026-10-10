@@ -116,18 +116,28 @@ import Foundation
           default: respond(id: id, error: (-32601, "Method not found"))
           }
         } catch {
-          // Backend errors are tool failures, not successful workflow results.
+          // Typed, sanitized backend diagnostics are failures, never success evidence.
+          let diagnostic = BackendDiagnostic(error: error)
+          let text = String(decoding: (try? JSONEncoder().encode(diagnostic)) ?? Data(), as: UTF8.self)
           respond(
             id: id,
             result: [
-              "isError": true, "content": [["type": "text", "text": "Operation failed: \(error)"]],
+              "isError": true,
+              "structuredContent": ["code": diagnostic.code.rawValue, "message": diagnostic.message],
+              "content": [["type": "text", "text": text]],
             ])
         }
       }
       do { try await engine?.waitForBackgroundOperations() }
-      catch { FileHandle.standardError.write(Data("EchoGuide: \(error)\n".utf8)) }
+      catch {
+        let diagnostic = BackendDiagnostic(error: error)
+        FileHandle.standardError.write(Data("EchoGuide: \(diagnostic.code.rawValue): \(diagnostic.message)\n".utf8))
+      }
       do { try await engine?.waitForPublisherDownloads() }
-      catch { FileHandle.standardError.write(Data("EchoGuide: \(error)\n".utf8)) }
+      catch {
+        let diagnostic = BackendDiagnostic(error: error)
+        FileHandle.standardError.write(Data("EchoGuide: \(diagnostic.code.rawValue): \(diagnostic.message)\n".utf8))
+      }
     }
   }
   static var toolDefinitions: [[String: Any]] {

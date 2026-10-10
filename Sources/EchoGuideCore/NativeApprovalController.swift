@@ -26,15 +26,16 @@ final class NativeApprovalController {
   private let engine: WorkflowEngine
   private let gate: NativePilotGate
   private let presenter: Presenter
-  private let dispatch: @Sendable (UUID, NativePilotSelection) async throws -> NativePilotResult
+  private let dispatch: @Sendable (UUID, NativePilotSelection, NativeConfirmationLease) async throws -> NativePilotResult
   private let validateSelection: SelectionValidator
   private let now: @Sendable () -> Date
   private var generation = UUID()
   private var closed = false
+  private var activeLease: NativeConfirmationLease?
 
   init(engine: WorkflowEngine, gate: NativePilotGate = .disabled,
        presenter: @escaping Presenter,
-       dispatch: @escaping @Sendable (UUID, NativePilotSelection) async throws -> NativePilotResult,
+       dispatch: @escaping @Sendable (UUID, NativePilotSelection, NativeConfirmationLease) async throws -> NativePilotResult,
        validateSelection: SelectionValidator? = nil,
        now: @escaping @Sendable () -> Date = { Date() }) {
     self.engine = engine; self.gate = gate; self.presenter = presenter
@@ -74,12 +75,15 @@ final class NativeApprovalController {
 
   /// Native window/app close permanently invalidates this controller instance.
   /// Reopening requires a fresh controller and a fresh native confirmation.
-  func invalidateForClosure() { closed = true; generation = UUID() }
+  func invalidateForClosure() { closed = true; generation = UUID(); activeLease?.revoke() }
 
   func confirm(requestID: UUID, selection: NativePilotSelection) async throws -> NativePilotResult? {
     guard gate == .experimentalOptIn, !closed else {
       throw GuideError.stopped("Native pilot confirmation is disabled or closed")
     }
+    activeLease?.revoke()
+    let lease = NativeConfirmationLease(); activeLease = lease
+    defer { lease.revoke() }
     let presentation = UUID(); generation = presentation
     let state = try engine.status()
     guard let request = state.pendingApproval, request.id == requestID,
@@ -89,6 +93,10 @@ final class NativeApprovalController {
     let prerequisites = try ApprovalPrerequisites.capture(session: state, action: request.action, profile: engine.profile)
     try ApprovalPolicy.validate(request, requestID: requestID, current: prerequisites, now: now())
     try await validateSelection(selection, request.action)
+    try Task.checkCancellation()
+    guard !closed, generation == presentation else {
+      throw GuideError.stopped("Native review was invalidated before presentation")
+    }
     let artifact = try engine.profile.artifact(named: request.action == .unlock
       ? "fastbrick-20240709.img" : ROMStagingAdapter.filename)
     let summary = NativeApprovalSummary(requestID: request.id, sessionID: request.sessionID,
@@ -125,6 +133,8 @@ final class NativeApprovalController {
       now: now())
     // The dispatcher independently refreshes host/guest/device/artifact evidence
     // under operation ownership and consumes approval before any device write.
-    return try await dispatch(requestID, selection)
+    return try await withTaskCancellationHandler {
+      try await dispatch(requestID, selection, lease)
+    } onCancel: { lease.revoke() }
   }
 }

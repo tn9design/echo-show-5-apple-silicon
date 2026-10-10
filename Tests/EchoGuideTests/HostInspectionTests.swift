@@ -27,7 +27,10 @@ final class HostInspectionTests: XCTestCase {
         usb: CommandResult(stdout: "invalid"), os: "27.0",
         architectureExit: architectureExit, osExit: osExit))
       do { _ = try await engine.inspect(); XCTFail("Failed host inspection accepted") }
-      catch { XCTAssertTrue(error.localizedDescription.contains("backend support is unknown")) }
+      catch {
+        XCTAssertTrue(error.localizedDescription.contains("backend support is unknown"))
+        XCTAssertEqual(BackendDiagnostic(error: error).code, .inspectionUnavailable)
+      }
     }
   }
   func testInvalidPlistIsUnavailableWhileEmptyPlistIsDetectedAbsence() async throws {

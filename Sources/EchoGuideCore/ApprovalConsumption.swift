@@ -33,6 +33,7 @@ extension WorkflowEngine {
   /// The validator runs under the same operation ownership as consumption and
   /// dispatch. It must only inspect the selected device and immutable inputs.
   func withFreshConsumedApproval<T: Sendable>(requestID: UUID,
+      nativeLease: NativeConfirmationLease? = nil,
       validator: @Sendable (SessionRecord) async throws -> FreshApprovalEvidence,
       callback: @Sendable (ConsumedApproval) async throws -> T) async throws -> T {
     try await operation("consume_native_approval") {
@@ -41,7 +42,15 @@ extension WorkflowEngine {
         throw GuideError.stopped("Approval is missing or already consumed")
       }
       let evidence = try await validator(initial)
-      let consumed = try self.consumeApproval(requestID: requestID, evidence: evidence, now: Date())
+      try Task.checkCancellation()
+      let consumed: ConsumedApproval
+      if let nativeLease {
+        consumed = try nativeLease.consuming {
+          try self.consumeApproval(requestID: requestID, evidence: evidence, now: Date())
+        }
+      } else {
+        consumed = try self.consumeApproval(requestID: requestID, evidence: evidence, now: Date())
+      }
       return try await callback(consumed)
     }
   }

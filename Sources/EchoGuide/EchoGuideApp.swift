@@ -55,6 +55,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
 
 @MainActor struct GuideView: View {
   @State private var owningWindow: NSWindow?
+  @State private var nativeProgress: NativePilotProgress?
+  @State private var nativeProgressGeneration: UUID?
   @State private var nativePilot: NativePilotCoordinator?
   private var experimentalPilot: Bool { NativePilotCoordinator.buildMode == .experimentalPilot }
   @State private var step: GuideStep = .inspect
@@ -130,7 +132,11 @@ private enum GuideStep: String, CaseIterable, Identifiable {
               .disabled(busy)
           }
           if busy {
-            if let progress = backupProgress {
+            if let progress = nativeProgress {
+              ProgressView(value: Double(progress.poweredWaitElapsedSeconds), total: Double(progress.poweredWaitRequiredSeconds))
+              Text("Keep wall power connected. Powered wait: \(progress.poweredWaitElapsedSeconds) of \(progress.poweredWaitRequiredSeconds) seconds; \(progress.attempts) bounded attempt(s).")
+              Text("Elapsed time is not unlock success. Compatible recovery must be independently verified.").font(.caption).foregroundStyle(.secondary)
+            } else if let progress = backupProgress {
               VStack(alignment: .leading, spacing: 8) {
                 Text("\(progress.partition ?? "Backup") · \(progress.stage.replacingOccurrences(of: "_", with: " "))")
                 if progress.stage == "capturing", progress.expectedBytes > 0 {
@@ -401,7 +407,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
 
   private func initialize() {
     do {
-      engine = try WorkflowEngine(root: WorkflowEngine.defaultRoot)
+      let root = try AppLaunchOptions.stateRoot(arguments: Array(CommandLine.arguments.dropFirst()))
+      engine = try WorkflowEngine(root: root)
       refresh()
     } catch { status = "Unable to open the local session: \(error.localizedDescription)" }
   }
@@ -768,12 +775,20 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     do {
       let coordinator = try NativePilotCoordinator.make(engine: engine, window: owningWindow)
       nativePilot = coordinator
+      let generation = UUID()
+      nativeProgressGeneration = generation; nativeProgress = nil
       busy = true
       operation = "Experimental native review and checked operation. Keep Echo wall power connected; an ambiguous result requires inspection."
       Task {
-        defer { nativePilot = nil; busy = false; refresh() }
+        defer { nativePilot = nil; nativeProgressGeneration = nil; nativeProgress = nil; busy = false; refresh() }
         do {
-          let result = try await coordinator.review(requestID: request.id, utm: selectedUTM, unlockPayload: selectedPayload)
+          let result = try await coordinator.review(requestID: request.id, utm: selectedUTM, unlockPayload: selectedPayload, progress: { tick in
+            Task { @MainActor in
+              guard nativeProgressGeneration == generation,
+                tick.poweredWaitElapsedSeconds >= (nativeProgress?.poweredWaitElapsedSeconds ?? 0) else { return }
+              nativeProgress = tick
+            }
+          })
           switch result {
           case .declined:
             status = "Native request declined; no operation was authorized."
