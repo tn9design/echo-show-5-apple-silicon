@@ -263,6 +263,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
             .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
           Button("Configure Linux translation…") { configureTranslation() }
             .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
+          Button("Check guest connection (no password)…") { inspectGuestConnection() }
+            .disabled(busy || engine == nil || !workspaceRegistered)
           Text("After SSH bootstrap, this installs the reviewed translation dependencies in the owned Debian VM. It uses your password once for sudo. After success, gracefully stop and start the workspace, then validate the original client. It does not write to the Echo.")
             .font(.caption).foregroundStyle(.secondary)
           Text("For validation, choose the original publisher fastboot binary. The app uses its bundled, hash-verified protocol helper and checks the binary’s pinned hash before an offline test; it does not contact the Echo.")
@@ -541,6 +543,18 @@ private enum GuideStep: String, CaseIterable, Identifiable {
         try await engine.configureOwnedGuestTranslation(utm: utm, password: password)
         status = "Linux translation setup completed. Gracefully stop and start this workspace, then validate the owned guest and original client. Workspace readiness has not yet been established."
       } catch { status = "Guest translation setup stopped: \(error.localizedDescription). No automatic retry; inspect before another attempt." }
+      refresh()
+      busy = false
+    }
+  }
+
+  private func inspectGuestConnection() {
+    guard let engine else { return }
+    busy = true
+    operation = "Checking the existing pinned SSH connection without a password…"
+    Task {
+      do { status = try encoded(try await engine.inspectOwnedGuestConnection()) }
+      catch { status = "Guest connection inspection stopped: \(error.localizedDescription)" }
       refresh()
       busy = false
     }

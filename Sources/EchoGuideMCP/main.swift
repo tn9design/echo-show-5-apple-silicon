@@ -72,7 +72,7 @@ import Foundation
             }
             guard
               [
-                "inspect", "prepare_downloads", "prepare_workspace", "status", "powered_wait_status", "verify_recovery", "backup", "request_unlock",
+                "inspect", "inspect_guest_connection", "prepare_downloads", "prepare_workspace", "status", "powered_wait_status", "verify_recovery", "backup", "request_unlock",
                 "request_install", "report",
               ].contains(name)
             else {
@@ -92,6 +92,7 @@ import Foundation
             encoder.outputFormatting = [.sortedKeys]
             switch name {
             case "inspect": data = try encoder.encode(try await activeEngine.inspect())
+            case "inspect_guest_connection": data = try encoder.encode(try await activeEngine.inspectOwnedGuestConnection())
             case "prepare_downloads": data = try encoder.encode(try activeEngine.startPublisherDownloads())
             case "prepare_workspace": data = try encoder.encode(try activeEngine.startConfiguredWorkspace())
             case "status": data = try encoder.encode(try activeEngine.status())
@@ -145,6 +146,7 @@ import Foundation
   static var toolDefinitions: [[String: Any]] {
     let definitions: [(String, String)] = [
       ("inspect", "Inspect host readiness; does not unlock or install."),
+      ("inspect_guest_connection", "Read-only pinned SSH check of the saved owned guest. No arguments, passwords, setup, or device commands. A connected result does not prove translation/client readiness; transport permissions may differ from the native app."),
       ("prepare_downloads", "Start pinned publisher downloads in the private app-owned directory. Returns operation ID; poll status.downloadProgress. Downloads only, never Linux workspace readiness."),
       ("prepare_workspace", "Create one owned Linux workspace using only native app-selected UTM and pinned Debian installer. Returns operation ID; poll status. Creation does not prove guest readiness."),
       ("status", "Read the private local session and pending operation."),

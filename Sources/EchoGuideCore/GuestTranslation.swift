@@ -24,7 +24,10 @@ extension GuestAdapter {
     let target = workspacePath + "/setup-linux-translation.sh"
     let preparation = try await runner.run(executable: "/usr/bin/ssh", arguments: arguments(command:
       "set -eu; test \"$(id -un)\" = \(username); test \"$HOME\" = /home/\(username); test ! -L \(workspacePath); mkdir -p \(workspacePath); chmod 700 \(workspacePath); test ! -L \(target)"))
-    guard preparation.exitCode == 0 else { throw GuideError.stopped("Translation staging prerequisite failed; no setup executed") }
+    guard preparation.exitCode == 0 else {
+      let failure = Self.connectionFailure(preparation)
+      throw GuideError.stopped("Translation staging stopped [\(failure.category)]: \(failure.reason) No setup executed")
+    }
     let options = try Array(arguments(command: "").dropLast(2)).filter { $0 != "-T" }
     let transfer = try await runner.run(executable: "/usr/bin/scp", arguments:
       ["-B"] + options + [source.path, username + "@" + address + ":" + target])

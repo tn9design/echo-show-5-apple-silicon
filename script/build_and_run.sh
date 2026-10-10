@@ -41,6 +41,7 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIconFile</key><string>EchoGuide</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>NSAppleEventsUsageDescription</key><string>EchoGuide creates and manages its isolated UTM Linux workspace.</string>
+<key>NSLocalNetworkUsageDescription</key><string>EchoGuide connects only to your managed Linux workspace for authenticated setup and installation checks.</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>

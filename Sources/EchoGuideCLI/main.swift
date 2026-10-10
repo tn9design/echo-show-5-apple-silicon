@@ -38,6 +38,7 @@ import Foundation
           utm: URL(fileURLWithPath: args[1]), iso: URL(fileURLWithPath: args[2]))
         try emit(["managedVMID": id.uuidString])
       case "inspect": try emit(try await engine.inspect())
+      case "inspect-guest-connection": try emit(try await engine.inspectOwnedGuestConnection())
             case "prepare-downloads": try emit(try await engine.prepareOwnedDownloads())
       case "status": try emit(try engine.status())
       case "powered-wait-status": try emit(try engine.poweredWaitStatus())
@@ -71,7 +72,7 @@ import Foundation
   enum CLIError: Error, CustomStringConvertible {
     case usage
     var description: String {
-      "Usage: echo-guide [--state-root DIRECTORY] inspect|prepare-downloads|status|powered-wait-status|verify-recovery|backup|request-unlock|request-install|report; or prepare-workspace UTM_APPLICATION DEBIAN_ISO; or reconcile-workspace|start-workspace|stop-workspace UTM_APPLICATION. Workspace creation uses only the pinned profile and creates an isolated owned VM. Echo write requests require native app approval; they do not execute a write."
+      "Usage: echo-guide [--state-root DIRECTORY] inspect|inspect-guest-connection|prepare-downloads|status|powered-wait-status|verify-recovery|backup|request-unlock|request-install|report; or prepare-workspace UTM_APPLICATION DEBIAN_ISO; or reconcile-workspace|start-workspace|stop-workspace UTM_APPLICATION. Workspace creation uses only the pinned profile and creates an isolated owned VM. Echo write requests require native app approval; they do not execute a write."
     }
   }
 }

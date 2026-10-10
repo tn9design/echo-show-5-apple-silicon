@@ -55,6 +55,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>NSAppleEventsUsageDescription</key><string>EchoGuide creates and manages its isolated UTM Linux workspace.</string>
+<key>NSLocalNetworkUsageDescription</key><string>EchoGuide connects only to your managed Linux workspace for authenticated setup and installation checks.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 </dict></plist>

@@ -30,6 +30,7 @@ Codex v0.162.0-alpha.17.2 passed a narrow integration smoke test on the developm
 |---|---|
 | `inspect` | Inspect Mac readiness |
 | `prepare_downloads` | Start pinned publisher downloads in the private app-owned directory; return operation ID |
+| `inspect_guest_connection` | Check the saved guest through pinned SSH without a password or setup; connection is separate from readiness |
 | `prepare_workspace` | Create an isolated VM using native-selected files; return operation ID |
 | `status` | Read the private local session |
 | `powered_wait_status` | Read saved waiting-period safety guidance without private IDs or paths |
@@ -86,3 +87,5 @@ A failed MCP tool returns `isError: true`, with matching JSON text and `structur
 | `concurrent_operation` | Wait for the active operation’s terminal result; do not start a competing client action. |
 
 Some boundaries still return generic failures. `operation_failed` is not evidence for a more specific cause; local inspection remains necessary.
+
+For a bootstrap or translation transport failure, call `inspect_guest_connection` (CLI: `inspect-guest-connection`). It accepts no address or command and returns sanitized connection evidence. A terminal/MCP connection does not prove the native app has the same network permissions; use the native no-password check to diagnose app-origin failures. No failure authorizes a setup retry or host-key bypass.
