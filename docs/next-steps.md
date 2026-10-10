@@ -4,8 +4,8 @@
 
 ## 1. Make the Linux workspace usable
 
-- Boot and install the first fresh VM created through the adapter; creation and stopped-state ownership reconciliation passed once. Create a second independent workspace after the first reaches readiness.
-- Validate keyboard/pointer input or the serial installer route, then install the pinned Debian baseline.
+- Finish account setup in the second fresh workspace: leave the root password empty, use the guided account name, and enter a unique temporary password yourself. Stop at the time-zone screen for the next guided step. The VM remains at this handoff; no credential was entered by the assistant.
+- Complete the pinned Debian installation and authenticate its serial bootstrap. Two distinct managed VM identities are recorded; the second passed checked startup and keyboard input, but neither has established fresh guest readiness.
 - Enable translation and confirm it survives a guest restart.
 - Validate the implemented native serial login on the pinned Debian baseline. It makes one attempt using the temporary password entered in the app; failed or unknown prompts stop without retry.
 - Validate the implemented account/key bootstrap, verified asset staging and readiness controls in the app on fresh VMs, including restarts and changed guest addresses.
@@ -31,7 +31,7 @@
 ## 4. Connect the supervised installer
 
 - Integrate the reviewed bounded unlock sequence, operation journal, powered wait and independent recovery verification.
-- Add ROM staging and device-side hash verification before the erase confirmation.
+- Connect the implemented internal ROM staging and device-side hash verification to the native flow before the erase confirmation.
 - Connect wipes, installation, current-invocation log verification, log preservation and reboot to the native approval path.
 - Test crashes and ambiguous results with fake runners before enabling any live dispatch.
 
@@ -41,7 +41,7 @@
 
 - Invite owners of additional matching units to informed, supervised trials; do not re-unlock the already-working Echo.
 - Record setup/home-screen and individual hardware checks, plus hands-on and total elapsed time.
-- Supply private signing/notary credentials, build the app, and verify installation on a clean Mac account.
+- Supply private signing/notary credentials and verify signed automation, notarization and installation on a clean Mac account. The extracted source archive already passes a local production build and matching CLI/MCP smoke checks; signing remains unverified.
 - Publish a release with a short user walkthrough, checksums, observed outcomes and known limits.
 
 **Done when:** at least two additional independent installations and the packaging checks pass. Do not promise an unlock success rate from this small sample.
