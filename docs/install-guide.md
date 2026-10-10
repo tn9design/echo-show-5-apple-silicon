@@ -1,0 +1,31 @@
+# Echo Show 5 CHECKERS: Apple Silicon Mac starter kit
+
+Experimental working-path starter kit, validated on one first-generation Echo Show 5. LineageOS setup and home screen were confirmed by its owner. Repeatability on other units is untested. Do not use for other Echo models.
+
+## What this kit saves
+
+Uses an ARM64 Debian guest, Apple's Intel Linux translation and Apple Virtualization USB instead of Windows drivers or slow full Intel emulation. Includes guest setup, an offline protocol check and an explicitly gated bounded unlock runner. No VM account, credentials, device backups, serial numbers, proprietary payloads or ROM binaries are included. Download those from the original publishers.
+
+## Tested configuration
+
+- Apple Silicon Mac Studio; macOS 27.2, build 26B5101f.
+- UTM 5.0.6 Beta; Apple Virtualization backend, ARM64 Debian 13.7, Intel Linux translation enabled, 4 GiB RAM, 12 GiB guest disk, shared networking. QEMU is a different backend.
+- amonet CHECKERS v2.0.1; original bundled x86_64 fastboot, LK build 44072a3-20240709_170103, matching fastbrick-20240709.img.
+- TWRP 3.7.0_9-0 and LineageOS 18.1 CHECKERS v0.7.
+
+## Walkthrough
+
+1. Download UTM from https://github.com/utmapp/UTM/releases/tag/v5.0.6 and Debian ARM64 from https://cdimage.debian.org/debian-cd/current/arm64/iso-cd/ . Create a separate Apple Virtualization Linux VM with the tested settings above, including Intel translation. Install Debian with SSH server and standard utilities. Choose your own guest credentials. Do not import an account from somebody else's VM.
+2. Download the CHECKERS package from the maintainer's unlock thread: https://xdaforums.com/t/unlock-root-twrp-unbrick-amazon-echo-show-5-1st-gen-2019-checkers.4762900/ . Extract it; place its original bin/fastboot alongside this kit's scripts inside the Linux guest. Also place the matching fastbrick-20240709.img there only when preparing the unlock. Verify SHA-256 values in hashes.json. This kit is specific to the recorded build; do not substitute a payload for a different LK.
+3. Inside Debian run `sudo bash setup-linux-translation.sh`. Run `chmod +x fastboot`, then `./fastboot --version`. For an offline check create a zero probe with `python3 -c 'open("probe.bin","wb").write(bytes(65536))'`, then run `python3 compare-mock.py --fastboot ./fastboot --image probe.bin`. Expect matches=true and a deliberately rejected simulated flash. This mock uses localhost TCP, not the Echo.
+4. Keep the Echo's wall power connected separately from its Micro-USB DATA cable. Enter fastboot using the maintainer's instructions (power on holding volume up, volume down and mute). With the VM active, use the macOS top-right menu-bar item **Virtual Machine Accessories**, expand **Android**, choose **Use with UTM**, then connect Android through UTM's **Virtual Machine > USB Devices** menu. Leave unrelated USB accessories on This Mac.
+5. Inside the guest use `sudo ./fastboot devices` to obtain YOUR serial. Run bounded getvar checks for product, unlock_status and lk_build_desc. Required product CHECKERS; build 44072a3-20240709_170103; not already unlocked. The included runner checks these once in upstream order.
+6. Unlock is a permanent-brick risk. Read the original instructions before deciding to proceed. `python3 bounded-unlock.py` verifies file hashes only and sends no device commands. Explicit execution is `sudo python3 bounded-unlock.py --execute YOUR_SERIAL`. It permits at most three attempts, eight-second timeouts and two seconds between the exact already-observed ordinary rejections. It stops on timeout or changed response. On our successful run the FIRST attempt timed out before reporting download completion, then the Echo booted TWRP. A timeout alone is NOT proof of success. Keep wall power connected for five minutes after the run; do not interrupt possible device-side work or automatically retry. If TWRP does not appear, stop and seek diagnosis.
+7. In TWRP initially choose **Keep Read Only**. On macOS with Android platform-tools installed, `adb devices -l` should show your serial in recovery, product omni_checkers. Read ro.product.device and ro.twrp.version. Do not reboot just to check fastboot lock state while this recovery is working.
+8. Before wiping, preserve the stock boot, recovery, system, userdata and companion metadata partitions to your own host. Userdata must be unmounted during a raw image backup. Derive partition mappings from YOUR recovery; do not blindly copy block numbers. Compare host hashes with device hashes. Our raw backups were verified, but restoration was not tested. Store them privately; they can contain credentials and personal data. They are not portable LineageOS app-data migration files.
+9. Get the ROM from https://github.com/amazon-oss/releases/releases/tag/lineage-18.1-checkers-v0.7 . Verify its hash before and after copying to the device. Follow the ROM maintainer: https://xdaforums.com/t/rom-unofficial-11-checkers-lineageos-18-1-for-the-amazon-echo-show-5-2019.4763475/ . Wipe **data, system, cache**, flash the verified ZIP, then reboot. These steps erase stock apps/settings and replace system/boot. Do not add vendor, recovery, LK or TEE wipes. Wiping data in our TWRP preserved media storage and the staged ZIP; verify that rather than assuming it.
+10. Save the recovery install log before reboot. Our install finished with updater RC=0, operation status=0. Wait for LineageOS startup and complete setup. If the display turns black, a short mute-button press woke it in our session. Leave **Update Lineage Recovery** unchecked to retain the working TWRP. Confirm Android setup/home screen; an animation alone is insufficient.
+
+## Boundaries
+
+This is a starter kit, not a one-click installer. VM creation and first USB assignment remain manual. No Windows drivers or Parallels were used in the successful path. Earlier fast transfers also failed; exact success mechanism and reliability remain unresolved. The package includes safeguards and local checks, but cannot make the exploit safe. Installed hardware functionality beyond touchscreen/setup/Wi-Fi still needs testing.
