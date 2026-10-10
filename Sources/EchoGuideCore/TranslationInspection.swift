@@ -41,6 +41,15 @@ extension WorkflowEngine {
         record["vmID"] == saved.vmID.uuidString, record["action"] == "configure_guest_translation" else {
         throw GuideError.stopped("Translation intent is invalid or belongs to another workspace")
       }
+      if let operationText = record["operationID"] {
+        guard let operationID = UUID(uuidString: operationText),
+          state.operations.contains(where: { $0.id == operationID && $0.action == "configure_guest_translation" }),
+          record["scriptSHA256"] == (try profile.artifact(named: "setup-linux-translation.sh").sha256) else {
+          throw GuideError.stopped("Translation intent does not match its operation or pinned script")
+        }
+      } else if record["scriptSHA256"] != nil {
+        throw GuideError.stopped("Translation intent has incomplete attempt bindings")
+      }
     }
     guard pending || !incomplete.isEmpty else {
       throw GuideError.stopped("No interrupted translation evidence to inspect")

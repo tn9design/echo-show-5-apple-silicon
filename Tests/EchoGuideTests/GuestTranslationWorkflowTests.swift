@@ -73,6 +73,8 @@ final class GuestTranslationWorkflowTests: XCTestCase {
     let marker = try JSONDecoder().decode([String: String].self, from: Data(contentsOf: intent))
     XCTAssertEqual(marker["vmID"], state.vmID)
     XCTAssertEqual(marker["action"], "configure_guest_translation")
+    XCTAssertEqual(marker["operationID"], state.operations.last?.id.uuidString)
+    XCTAssertEqual(marker["scriptSHA256"], try engine.profile.artifact(named: "setup-linux-translation.sh").sha256)
     let ordinary = engine.runner as! TranslationWorkflowCommands
     let before = await ordinary.count()
     for action in 0...4 {

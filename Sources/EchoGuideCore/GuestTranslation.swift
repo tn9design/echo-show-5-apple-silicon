@@ -60,7 +60,7 @@ extension WorkflowEngine {
   public func configureOwnedGuestTranslation(utm: URL, password: String,
     sensitiveRunner: any SensitiveCommandRunning = SensitiveProcessRunner()) async throws {
     try SerialLogin.validatePassword(password)
-    try await operation("configure_guest_translation") {
+    try await operationWithIdentifier("configure_guest_translation") { operationID in
       try self.requireTranslationInspectionComplete()
       let state = try self.status()
       guard let saved = state.guest, state.vmID == saved.vmID.uuidString,
@@ -77,7 +77,9 @@ extension WorkflowEngine {
         address: saved.address, username: state.guestUsername ?? "user")
       let intent = self.store.root.appendingPathComponent("translation-setup-pending.json")
       try await guest.configureTranslation(password: password, sensitiveRunner: sensitiveRunner) {
-        let record = ["vmID": saved.vmID.uuidString, "action": "configure_guest_translation"]
+        let record = ["vmID": saved.vmID.uuidString, "action": "configure_guest_translation",
+          "operationID": operationID.uuidString,
+          "scriptSHA256": try self.profile.artifact(named: "setup-linux-translation.sh").sha256]
         try JSONEncoder().encode(record).write(to: intent, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: intent.path)
       }

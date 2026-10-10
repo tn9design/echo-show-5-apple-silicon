@@ -81,6 +81,34 @@ final class TranslationInspectionTests: XCTestCase {
     do { _ = try await engine.inspectInterruptedTranslation(utm: URL(fileURLWithPath: "/Applications/UTM.app")); XCTFail() } catch {}
     let calls = await runner.count(); XCTAssertEqual(calls, 0)
   }
+  func testBoundIntentMatchesJournalAndPinnedScript() async throws {
+    let (engine, _) = try fixture(action: "configure_guest_translation")
+    defer { try? FileManager.default.removeItem(at: engine.store.root) }
+    let state = try engine.status()
+    try JSONEncoder().encode(["vmID": state.vmID!, "action": "configure_guest_translation",
+      "operationID": state.operations.last!.id.uuidString,
+      "scriptSHA256": try engine.profile.artifact(named: "setup-linux-translation.sh").sha256])
+      .write(to: engine.store.root.appendingPathComponent("translation-setup-pending.json"))
+    let result = try await engine.inspectInterruptedTranslation(utm: URL(fileURLWithPath: "/Applications/UTM.app"))
+    XCTAssertEqual(result.category, "unknown")
+    XCTAssertNil(try engine.status().operations.last?.completedAt)
+  }
+  func testWrongOrPartialAttemptBindingStopsBeforeBackend() async throws {
+    for kind in 0...2 {
+      let (engine, runner) = try fixture(action: "configure_guest_translation")
+      defer { try? FileManager.default.removeItem(at: engine.store.root) }
+      let state = try engine.status()
+      var marker = ["vmID": state.vmID!, "action": "configure_guest_translation",
+        "operationID": state.operations.last!.id.uuidString,
+        "scriptSHA256": try engine.profile.artifact(named: "setup-linux-translation.sh").sha256]
+      if kind == 0 { marker["operationID"] = UUID().uuidString }
+      if kind == 1 { marker["scriptSHA256"] = String(repeating: "0", count: 64) }
+      if kind == 2 { marker.removeValue(forKey: "operationID") }
+      try JSONEncoder().encode(marker).write(to: engine.store.root.appendingPathComponent("translation-setup-pending.json"))
+      do { _ = try await engine.inspectInterruptedTranslation(utm: URL(fileURLWithPath: "/Applications/UTM.app")); XCTFail() } catch {}
+      let calls = await runner.count(); XCTAssertEqual(calls, 0)
+    }
+  }
   func testConcurrentOperationStopsBeforeBackend() async throws {
     let (engine, runner) = try fixture()
     defer { try? FileManager.default.removeItem(at: engine.store.root) }

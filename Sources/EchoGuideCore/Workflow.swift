@@ -334,6 +334,11 @@ extension WorkflowEngine {
   func operation<T: Sendable>(_ action: String, _ body: @Sendable () async throws -> T)
     async throws -> T
   {
+    try await operationWithIdentifier(action) { _ in try await body() }
+  }
+  func operationWithIdentifier<T: Sendable>(_ action: String, _ body: @Sendable (UUID) async throws -> T)
+    async throws -> T
+  {
     let fd = open(store.root.appendingPathComponent("active.lock").path, O_CREAT | O_RDWR, 0o600)
     guard fd >= 0 else { throw GuideError.stopped("Cannot acquire operation lock") }
     defer { close(fd) }
@@ -349,7 +354,7 @@ extension WorkflowEngine {
       s.operations.append(OperationRecord(id: id, action: action, startedAt: Date()))
     }
     do {
-      let result = try await body()
+      let result = try await body(id)
       try store.transaction { s in
         if let i = s.operations.firstIndex(where: { $0.id == id }) {
           s.operations[i].completedAt = Date()
