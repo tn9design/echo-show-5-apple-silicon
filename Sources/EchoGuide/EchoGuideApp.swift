@@ -210,6 +210,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
         "Linux translation and the first USB assignment require a user action in UTM/macOS. Workspace creation is available as pilot integration; guest bootstrap is still being validated, so creation does not establish readiness."
       )
       Button("Create managed UTM workspace…") { prepareWorkspace() }.disabled(busy || engine == nil)
+      Button("Choose workspace files for AI setup…") { configureWorkspaceFiles() }.disabled(busy || engine == nil)
       Text("After creation, configure only the workspace recorded in this session. Then start it and complete Debian setup before guest authentication.").font(.callout)
       instruction(
         "1", "Enable installer input",
@@ -430,13 +431,31 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     operation = "Preparing app-owned Linux workspace…"
     Task {
       do {
-        let id = try await engine.prepareWorkspace(utm: utm, iso: iso)
+        try engine.configureWorkspacePreparation(utm: utm, iso: iso)
+        let record = try engine.startConfiguredWorkspace()
+        await engine.waitForWorkspacePreparation()
+        let state = try engine.status()
+        guard let outcome = state.operations.first(where: { $0.id == record.id }),
+          outcome.completedAt != nil, outcome.result == "completed", let id = state.vmID else {
+          throw GuideError.stopped(state.workspaceDiagnostic?.message ?? "Workspace creation did not complete; inspect session status before retrying")
+        }
         status =
           "Managed workspace recorded: \(id). Complete the guided guest setup and translation checks; creation alone does not prove readiness."
       } catch { status = "Workspace preparation stopped: \(error.localizedDescription)" }
       refresh()
       busy = false
     }
+  }
+
+  private func configureWorkspaceFiles() {
+    guard let engine,
+      let utm = selectFile(message: "Select UTM 5.0.6 for the app-owned workspace."),
+      let iso = selectFile(message: "Select the pinned Debian ARM64 netinst ISO.") else { return }
+    do {
+      try engine.configureWorkspacePreparation(utm: utm, iso: iso)
+      status = "Workspace files selected privately. Your AI can now request prepare_workspace; this does not create a VM or establish guest readiness. UTM version is checked when creation runs."
+    } catch { status = "Workspace file selection stopped: \(error.localizedDescription)" }
+    refresh()
   }
 
   private enum WorkspaceAction { case reconcile, start, stop }

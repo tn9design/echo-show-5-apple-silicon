@@ -30,6 +30,7 @@ Codex v0.162.0-alpha.17.2 passed a narrow integration smoke test on the developm
 |---|---|
 | `inspect` | Inspect Mac readiness |
 | `prepare_downloads` | Start pinned publisher downloads in the private app-owned directory; return operation ID |
+| `prepare_workspace` | Create an isolated VM using native-selected files; return operation ID |
 | `status` | Read the private local session |
 | `powered_wait_status` | Read saved waiting-period safety guidance without private IDs or paths |
 | `verify_recovery` | Verify compatible recovery using app-selected ADB and device |
@@ -37,6 +38,8 @@ Codex v0.162.0-alpha.17.2 passed a narrow integration smoke test on the developm
 | `request_unlock` | Create a pending native approval request |
 | `request_install` | Create a pending native approval request |
 | `report` | Produce redacted shareable diagnostics |
+
+For AI workspace setup, first use “Choose workspace files for AI setup…” in the native app to select UTM and the pinned Debian ISO. Then call `prepare_workspace` with no arguments and poll its operation ID. Completion requires the matching successful terminal record and recorded VM UUID; it does not prove installed Linux, translation, or guest readiness. Failed creation exposes a fixed safe `workspaceDiagnostic`; inspect before retrying.
 
 Select the ADB executable, device, and private backup destination in the native app first. Recovery and backup calls fail with setup guidance until configured. All tools take an empty argument object. The server uses `~/Library/Application Support/EchoGuide`; callers cannot provide paths, commands, payloads, credentials, or approval decisions. Keep the native app running to receive approval notifications. If it is closed, launch it and review the saved pending request; the server does not install or launch another app. The native app and backend enforce prerequisites. A request may be rejected before approval if readiness is incomplete.
 
@@ -49,7 +52,7 @@ Experimental pilot availability is not live app validation or a reliability clai
 The CLI supports `inspect`, `prepare-downloads`, `status`, `powered-wait-status`, `verify-recovery`, `backup`, `request-unlock`, `request-install`, and `report`, plus explicit workspace setup/lifecycle development commands. It exposes no approval or native device-writing dispatcher. The native app also provides a local pinned-ROM chooser and a separate copy-and-device-hash-verification action after verified backups. Neither exposes caller-selected paths through MCP. Its optional `--state-root DIRECTORY` is a manual development configuration, not an MCP input. Never share raw `status` output: use `report` and review it first.
 
 
-`prepare_downloads` takes no arguments and uses the bundled profile's publishers, sizes, and SHA-256 values. It saves under the private session's `downloads` directory. Poll `status.downloadProgress` and the matching operation record; transferred bytes are not verified-file proof. A failed or cancelled operation is not a prepared VM. Existing verified files can be reused during an explicit retry; mismatching files are preserved and rejected. Graceful stdio EOF waits for both backups and publisher downloads, while forced termination leaves an incomplete intent requiring inspection.
+`prepare_downloads` takes no arguments and uses the bundled profile's publishers, sizes, and SHA-256 values. It saves under the private session's `downloads` directory. Poll `status.downloadProgress` and the matching operation record; transferred bytes are not verified-file proof. A failed or cancelled operation is not a prepared VM. Existing verified files can be reused during an explicit retry; mismatching files are preserved and rejected. Graceful stdio EOF waits for backups, publisher downloads, and workspace creation, while forced termination leaves an incomplete intent requiring inspection.
 
 The CLI command `echo-guide prepare-downloads` waits for the same preparation result. No caller can supply publisher URLs, artifacts, or a destination through MCP. App folder selection remains a separate user-controlled download workflow using the same core verifier.
 
@@ -62,6 +65,8 @@ A failed MCP tool returns `isError: true`, with matching JSON text and `structur
 
 | Code | Next action |
 |---|---|
+| `unsupported_host` | This Mac cannot use the supported device-writing backend. |
+| `unsupported_workspace_tool` | Select the pinned supported UTM version in the native app. |
 | `permission_denied` | Review the required local access; do not substitute a different access path automatically. |
 | `inspection_unavailable` | Treat visibility and compatibility as unknown; restore inspection before proceeding. |
 | `guest_translation_missing` | Enable Linux translation in the owned VM, then explicitly revalidate readiness. |

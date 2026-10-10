@@ -72,7 +72,7 @@ import Foundation
             }
             guard
               [
-                "inspect", "prepare_downloads", "status", "powered_wait_status", "verify_recovery", "backup", "request_unlock",
+                "inspect", "prepare_downloads", "prepare_workspace", "status", "powered_wait_status", "verify_recovery", "backup", "request_unlock",
                 "request_install", "report",
               ].contains(name)
             else {
@@ -93,6 +93,7 @@ import Foundation
             switch name {
             case "inspect": data = try encoder.encode(try await activeEngine.inspect())
             case "prepare_downloads": data = try encoder.encode(try activeEngine.startPublisherDownloads())
+            case "prepare_workspace": data = try encoder.encode(try activeEngine.startConfiguredWorkspace())
             case "status": data = try encoder.encode(try activeEngine.status())
             case "powered_wait_status": data = try encoder.encode(try activeEngine.poweredWaitStatus())
             case "verify_recovery":
@@ -133,6 +134,7 @@ import Foundation
         let diagnostic = BackendDiagnostic(error: error)
         FileHandle.standardError.write(Data("EchoGuide: \(diagnostic.code.rawValue): \(diagnostic.message)\n".utf8))
       }
+      await engine?.waitForWorkspacePreparation()
       do { try await engine?.waitForPublisherDownloads() }
       catch {
         let diagnostic = BackendDiagnostic(error: error)
@@ -144,6 +146,7 @@ import Foundation
     let definitions: [(String, String)] = [
       ("inspect", "Inspect host readiness; does not unlock or install."),
       ("prepare_downloads", "Start pinned publisher downloads in the private app-owned directory. Returns operation ID; poll status.downloadProgress. Downloads only, never Linux workspace readiness."),
+      ("prepare_workspace", "Create one owned Linux workspace using only native app-selected UTM and pinned Debian installer. Returns operation ID; poll status. Creation does not prove guest readiness."),
       ("status", "Read the private local session and pending operation."),
       ("powered_wait_status", "Read saved powered-wait evidence and safety guidance, without request IDs or paths. Incomplete means keep wall power connected and inspect; never retry automatically. Completion does not prove unlock success."),
       (
@@ -167,7 +170,7 @@ import Foundation
     return definitions.map { name, description -> [String: Any] in
       let schema: [String: Any] = ["type": "object", "properties": [:], "additionalProperties": false]
       let annotations: [String: Any] = [
-        "readOnlyHint": !["request_unlock", "request_install", "backup", "prepare_downloads"].contains(name),
+        "readOnlyHint": !["request_unlock", "request_install", "backup", "prepare_downloads", "prepare_workspace"].contains(name),
         "openWorldHint": name == "prepare_downloads"
       ]
       return [

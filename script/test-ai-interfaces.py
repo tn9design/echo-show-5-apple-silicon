@@ -21,7 +21,7 @@ replies = [json.loads(line) for line in result.stdout.splitlines()]
 assert len(replies) == 6, replies
 assert replies[0]['error']['code'] == -32700
 assert replies[1]['result']['protocolVersion'] == '2024-11-05'
-assert {t['name'] for t in replies[2]['result']['tools']} == {'inspect', 'prepare_downloads', 'status', 'powered_wait_status', 'verify_recovery', 'backup', 'request_unlock', 'request_install', 'report'}
+assert {t['name'] for t in replies[2]['result']['tools']} == {'inspect', 'prepare_downloads', 'prepare_workspace', 'status', 'powered_wait_status', 'verify_recovery', 'backup', 'request_unlock', 'request_install', 'report'}
 assert replies[3]['result'] == {}
 assert replies[4]['error']['code'] == -32602
 assert replies[5]['error']['code'] == -32602

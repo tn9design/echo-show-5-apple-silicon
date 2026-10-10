@@ -48,6 +48,23 @@ final class SerialTests: XCTestCase {
     XCTAssertEqual(output, reply)
     await transport.close()
   }
+  func testReadPreservesTrailingBytesAndChoosesEarliestMarker() async throws {
+    let (master, slave, channel) = try pair()
+    defer {
+      Darwin.close(master)
+      Darwin.close(slave)
+    }
+    let transport = try SerialTransport(channel: channel)
+    let reply = Data("login: Password: tail".utf8)
+    _ = reply.withUnsafeBytes { Darwin.write(master, $0.baseAddress, reply.count) }
+    let first = try await transport.read(untilAny: [Data("Password: ".utf8), Data("login: ".utf8)])
+    XCTAssertEqual(first, Data("login: ".utf8))
+    let second = try await transport.read(until: Data("Password: ".utf8))
+    XCTAssertEqual(second, Data("Password: ".utf8))
+    let third = try await transport.read(until: Data("tail".utf8))
+    XCTAssertEqual(third, Data("tail".utf8))
+    await transport.close()
+  }
   func testTimeoutDoesNotReturnPartialEvidence() async throws {
     let (master, slave, channel) = try pair()
     defer {

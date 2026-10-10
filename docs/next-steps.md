@@ -4,7 +4,8 @@
 
 ## 1. Make the Linux workspace usable
 
-- Authenticate the completed disposable Debian installation through the app’s serial bootstrap. Account setup was completed by the user, installation finished, and the guest visibly booted to its login prompt.
+- Confirm or repair the disposable guest account first: both app login and a separate direct Debian login as `user` were rejected. The guest installed and booted, but its account/password combination is not yet verified. Keep credentials private and let the person perform any password change.
+- After direct account authentication succeeds, authenticate through the app’s serial bootstrap. The serial reader preserves framed bytes; an in-progress or missing initial prompt stops without submitting credentials and requires explicit inspection or graceful restart.
 - Use the isolated app session (`--state-root ABSOLUTE_DIRECTORY`) to avoid changing an existing installation session. Two distinct managed VM identities are recorded, but neither has established fresh authenticated guest readiness.
 - Enable translation and confirm it survives a guest restart.
 - Validate the implemented native serial login on the pinned Debian baseline. It makes one attempt using the temporary password entered in the app; failed or unknown prompts stop without retry.
@@ -22,6 +23,7 @@
 
 ## 3. Complete the assistant handoff
 
+- Validate the new no-argument `prepare_workspace` flow after native UTM/ISO selection. Its operation ID is reservation evidence; successful VM creation still does not establish guest readiness.
 - Extend the completed ephemeral Codex powered-wait smoke to progress and native request handoffs, and test Claude Desktop. Persistent client configurations remain untested.
 - Verify that a request reaches the running app, displays the exact action/device, and cannot be approved by the assistant.
 - Check app-closed, stale-request, concurrent-operation and changed-device behavior.

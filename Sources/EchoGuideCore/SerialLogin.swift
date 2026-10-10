@@ -9,12 +9,29 @@ enum SerialLogin {
       throw GuideError.stopped("Enter a nonempty Linux password without control characters")
     }
   }
-  static func authenticate(_ terminal: SerialTransport, password: String) async throws {
+  static func authenticate(_ terminal: SerialTransport, password: String, promptTimeout: TimeInterval = 20) async throws {
     try validatePassword(password)
-    try await terminal.write(Data("\n".utf8))
-    let first = try await terminal.read(untilAny: [Data("login: ".utf8), Data("$ ".utf8)])
+    // Observe before sending anything: an interrupted invocation may still be at
+    // Password, where even a wake newline would submit an unintended credential.
+    let first: Data
+    do {
+      first = try await terminal.read(untilAny: [
+        Data("login: ".utf8), Data("$ ".utf8), Data("Password: ".utf8),
+        Data("Login incorrect".utf8),
+      ], timeout: promptTimeout)
+    } catch GuideError.stopped(let message) where message == "Serial response timed out" {
+      throw GuideError.stopped("No fresh serial login prompt. Gracefully restart the owned VM before another explicit bootstrap")
+    }
     guard let text = String(data: first, encoding: .utf8) else {
       throw GuideError.stopped("Unexpected serial login encoding")
+    }
+    if text.hasSuffix("Password: ") || text.hasSuffix("Login incorrect") {
+      throw GuideError.stopped("Serial login is already in progress. Gracefully restart the owned VM before another explicit bootstrap")
+    }
+    guard !(await terminal.hasBufferedInput(containing: [
+      Data("Password: ".utf8), Data("Login incorrect".utf8),
+    ])) else {
+      throw GuideError.stopped("Serial login is already in progress. Gracefully restart the owned VM before another explicit bootstrap")
     }
     // An existing shell is verified by the subsequent fresh bootstrap challenge, not this prompt.
     if text.hasSuffix("$ ") { return }
@@ -22,7 +39,11 @@ enum SerialLogin {
       throw GuideError.stopped("Ambiguous serial login prompt")
     }
     try await terminal.write(Data("user\n".utf8))
-    let prompt = try await terminal.read(untilAny: [Data("Password: ".utf8), Data("login: ".utf8)])
+    // A delayed duplicate getty prompt is not evidence of a failed username attempt.
+    // Await the password request within the same bounded read; credentials are sent once.
+    let prompt = try await terminal.read(untilAny: [
+      Data("Password: ".utf8), Data("Login incorrect".utf8),
+    ])
     guard String(data: prompt, encoding: .utf8)?.hasSuffix("Password: ") == true else {
       throw GuideError.stopped("Serial login did not request the user password")
     }

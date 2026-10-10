@@ -93,6 +93,8 @@ public struct SessionRecord: Codable, Sendable {
   public var profileID: String
   public var device: DeviceIdentity?
   public var vmID: String?
+  public var workspaceSelection: WorkspacePreparationSelection?
+  public var workspaceDiagnostic: BackendDiagnostic?
   public var adbPath: String?
   public var backupDestination: String?
   public var configuredROMPath: String?
@@ -373,6 +375,10 @@ extension WorkflowEngine {
       ), try RecoveryAdapter.hash(iso) == artifact.sha256
     else { throw GuideError.stopped("Pinned Debian ISO missing or mismatched") }
     return try await operation("prepare_workspace") {
+      try await self.performWorkspaceCreation(utm: utm, iso: iso)
+    }
+  }
+  func performWorkspaceCreation(utm: URL, iso: URL) async throws -> UUID {
       guard try self.status().vmID == nil else {
         throw GuideError.stopped("Workspace exists; inspect it rather than creating a duplicate")
       }
@@ -400,7 +406,6 @@ extension WorkflowEngine {
         $0.phase = .workspace
       }
       return id
-    }
   }
   public func verifyRecovery(adb: URL, serial: String) async throws {
     try await operation("verify_recovery") {

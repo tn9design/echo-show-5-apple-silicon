@@ -7,6 +7,7 @@ public actor SerialTransport {
   private var originalSettings: termios
   private var reading = false
   private var writing = false
+  private var pendingInput = Data()
   public let channel: OwnedSerialChannel
 
   public init(channel: OwnedSerialChannel) throws {
@@ -51,7 +52,11 @@ public actor SerialTransport {
       tcsetattr(descriptor, TCSANOW, &originalSettings)
       Darwin.close(descriptor)
       descriptor = -1
+      pendingInput.removeAll()
     }
+  }
+  func hasBufferedInput(containing markers: [Data]) -> Bool {
+    markers.contains { pendingInput.range(of: $0) != nil }
   }
   /// Each call is bounded and cancellable; bytes may contain a password and are never logged.
   public func write(_ data: Data, timeout: TimeInterval = 5) async throws {
@@ -99,18 +104,27 @@ public actor SerialTransport {
     defer { reading = false }
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: .seconds(timeout))
-    var output = Data()
+    var output = pendingInput
+    pendingInput.removeAll()
     var buffer = [UInt8](repeating: 0, count: 4096)
     while true {
       try Task.checkCancellation()
       guard descriptor >= 0 else { throw GuideError.stopped("Serial channel closed") }
+      // Preserve bytes after the earliest complete marker for the next protocol stage.
+      if let match = markers.compactMap({ output.range(of: $0) })
+        .filter({ $0.upperBound <= limit }).min(by: {
+        $0.lowerBound < $1.lowerBound
+      }) {
+        pendingInput = Data(output[match.upperBound...])
+        return Data(output[..<match.upperBound])
+      }
+      guard output.count < limit else {
+        throw GuideError.stopped("Serial response exceeded limit")
+      }
       let count = Darwin.read(descriptor, &buffer, min(buffer.count, limit - output.count))
       if count > 0 {
         output.append(contentsOf: buffer.prefix(count))
-        if markers.contains(where: { output.range(of: $0) != nil }) { return output }
-        guard output.count < limit else {
-          throw GuideError.stopped("Serial response exceeded limit")
-        }
+        continue
       } else if count == 0 {
         throw GuideError.stopped("Serial channel disconnected")
       } else if ![EAGAIN, EINTR].contains(errno) {
