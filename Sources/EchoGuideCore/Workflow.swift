@@ -101,6 +101,7 @@ public struct SessionRecord: Codable, Sendable {
   public var backupManifest: String?
   public var guest: GuestWorkspaceRecord?
   public var backupProgress: BackupProgress?
+  public var postInstallObservations: [PostInstallObservation]?
   public var startupConfirmed = false
   public init(profileID: String) { self.profileID = profileID }
 }
@@ -397,6 +398,9 @@ extension WorkflowEngine {
           serial: serial, product: self.profile.product,
           lkBuild: s.device?.serial == serial ? s.device!.lkBuild : "not verified in recovery",
           recoveryVersion: self.profile.recoveryVersion)
+        // Entering a new recovery workflow invalidates observations from a previous installation.
+        s.postInstallObservations = nil
+        s.startupConfirmed = false
         s.phase = .recovery
       }
     }

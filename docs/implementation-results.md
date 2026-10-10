@@ -1,6 +1,10 @@
 # Source preview implementation results
 
-The integrated app, shared core, CLI and MCP build successfully on the development Mac using local temporary build staging. The expanded run passed 90 XCTest cases with no failures. Tests use temporary fixtures, fake runners and isolated host PTYs; they do not connect to an Echo, create a VM, or prove unlock repeatability.
+The integrated app, shared core, CLI and MCP build successfully on the development Mac using local temporary build staging. The expanded run executed 103 XCTest cases: 100 passed, three optional local-ROM fixtures skipped, and no failures. Tests use temporary fixtures, fake runners and isolated host PTYs; they do not connect to an Echo, create a VM, or prove unlock repeatability.
+
+Internal ROM staging now checks all five backup images against their manifest before and after staging, validates the durable receipt, and records the pinned ROM hash only if the session evidence remains unchanged. Five workflow fixtures passed, including changed-device and corrupted-backup rejection. This internal operation is not exposed through the app, CLI or MCP; device-writing release gates remain disabled.
+
+The native post-install checklist records Wi-Fi, touchscreen, audio, microphone, camera and normal reboot separately as timestamped personal observations. Five focused tests passed. Returning to recovery clears previous startup and hardware observations, including for the same device. These controls do not establish automated hardware verification; their visual runtime behavior remains unverified.
 
 The project-authored offline protocol helper is bundled and hash-verified, removing its file picker. Client/helper hashes now come from the versioned compatibility profile. A resource test caught a missing Python file in the generated bundle; explicit copy-resource packaging fixes it and the test verifies equality with the source helper.
 

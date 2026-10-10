@@ -51,12 +51,10 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   @State private var guestPassword = ""
   @State private var backupProgress: BackupProgress?
   @State private var activeBackupID: UUID?
-  @State private var checklist: Set<String> = []
-
-  private let startupChecks = [
-    "Android setup / home screen", "Wi-Fi", "Touchscreen", "Audio", "Microphone", "Camera",
-    "Normal reboot",
-  ]
+  @State private var startupPersonallyObserved = false
+  @State private var startupAlreadyRecorded = false
+  @State private var postInstallEnabled = false
+  @State private var postInstallOutcomes: [PostInstallCheck: PostInstallOutcome] = [:]
 
   var body: some View {
     NavigationSplitView {
@@ -254,20 +252,26 @@ private enum GuideStep: String, CaseIterable, Identifiable {
           Text(
             "During Android setup, leave Update Lineage Recovery unchecked to retain TWRP. A dark screen may be asleep; do not assume it is a failed boot."
           )
-          Text(
-            "Personal checklist below is not an automated verification and is not saved as device evidence."
-          ).font(.caption).foregroundStyle(.secondary)
-          ForEach(startupChecks, id: \.self) { check in
-            Toggle(
-              check,
-              isOn: Binding(
-                get: { checklist.contains(check) },
-                set: { value in
-                  if value { checklist.insert(check) } else { checklist.remove(check) }
-                }))
+          Text("These saved outcomes are your observations, not automated hardware verification. Leave anything you have not checked as Not checked.")
+            .font(.caption).foregroundStyle(.secondary)
+          Toggle("I personally reached Android setup / home screen", isOn: $startupPersonallyObserved)
+            .disabled(!postInstallEnabled || busy || startupAlreadyRecorded)
+          Button("Record my Android startup confirmation") { confirmStartup() }
+            .disabled(!startupPersonallyObserved || !postInstallEnabled || engine == nil || busy || startupAlreadyRecorded)
+          ForEach(PostInstallCheck.allCases) { check in
+            Picker(check.label, selection: Binding(
+              get: { postInstallOutcomes[check] ?? .notChecked },
+              set: { outcome in recordPostInstall(check, outcome: outcome) }
+            )) {
+              ForEach(PostInstallOutcome.allCases) { outcome in
+                Text(outcome.label).tag(outcome)
+              }
+            }.disabled(!postInstallEnabled || engine == nil || busy)
           }
-          Button("Confirm I reached Android setup / home") { confirmStartup() }
-            .disabled(!checklist.contains("Android setup / home screen") || engine == nil || busy)
+          if !postInstallEnabled {
+            Text("Hardware observations can be saved after installation is verified.")
+              .font(.caption).foregroundStyle(.secondary)
+          }
         }.padding(8)
       }
       GroupBox("Latest result") { selectable(status) }
@@ -494,6 +498,10 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       let record = try engine.status()
       session = try encoded(record)
       pendingApproval = record.pendingApproval
+      postInstallEnabled = record.phase == .installed || record.phase == .finished
+      startupPersonallyObserved = record.startupConfirmed
+      startupAlreadyRecorded = record.startupConfirmed
+      postInstallOutcomes = Dictionary((record.postInstallObservations ?? []).map { ($0.check, $0.outcome) }, uniquingKeysWith: { _, newest in newest })
     } catch { status = "Session check stopped: \(error.localizedDescription)" }
   }
 
@@ -577,6 +585,15 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     do { report = try encoded(engine.diagnosticReport()) } catch {
       status = "Report stopped: \(error.localizedDescription)"
     }
+  }
+
+  private func recordPostInstall(_ check: PostInstallCheck, outcome: PostInstallOutcome) {
+    guard let engine else { return }
+    do {
+      try engine.recordPostInstallObservation(check: check, outcome: outcome)
+      status = "Your \(check.label) observation was saved: \(outcome.label). Other checks remain separate."
+      refresh()
+    } catch { status = "Observation was not saved: \(error.localizedDescription)" }
   }
 
   private func confirmStartup() {
