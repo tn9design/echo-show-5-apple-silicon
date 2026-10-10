@@ -168,7 +168,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
             Text(session).font(.system(.caption, design: .monospaced))
               .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
           }
-        }.padding(28)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(28)
       }
     }
     .frame(minWidth: 850, minHeight: 620)
@@ -223,14 +223,6 @@ private enum GuideStep: String, CaseIterable, Identifiable {
         "2", "Enable Linux translation",
         "In the app-owned UTM VM configuration, enable Rosetta translation for Linux. Do not change an unrelated VM."
       )
-      instruction(
-        "3", "Assign the Echo to UTM only when needed",
-        "At the top right of the Mac menu bar, open the accessories icon. Select Android → Use with UTM. Leave your mouse, charger, and other accessories on This Mac."
-      )
-      instruction(
-        "4", "Attach to the correct VM",
-        "In UTM, open Virtual Machine → USB Devices and choose the Echo for the workspace identified by this session. A successful attachment still requires guest identity checks."
-      )
       VStack(alignment: .leading, spacing: 8) {
         Button("Choose a different UTM application…") {
           if let selection = selectFile(message: "Select the pinned UTM 5.0.6 application for workspace actions.") {
@@ -245,8 +237,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       Text("These actions inspect or control only the workspace recorded by this session. Observed VM state does not prove guest or USB readiness. Reconciliation never silently creates a replacement; stop requests are graceful, never forced.")
         .font(.caption).foregroundStyle(.secondary)
       instruction(
-        "5", "Create the Debian account for this workspace",
-        "For a fresh install, disable the separate root account; if asked for a root password, leave it blank. Choose any full name, use user as the Linux username, and choose a private nonempty user password. Select SSH server and standard system utilities. Debian then installs sudo for the first account. After bootstrap, the no-password connection check must confirm sudo is available before translation setup. This does not change an existing guest account."
+        "3", "Install Debian and create its account",
+        "Start the owned workspace using the button above and complete its Debian installer. For a fresh install, disable the separate root account; if asked for a root password, leave it blank. Choose any full name, use user as the Linux username, and choose a private nonempty user password. Select SSH server and standard system utilities. Debian then installs sudo for the first account. After bootstrap, the no-password connection check must confirm sudo is available before translation setup. This does not change an existing guest account."
       )
       GroupBox("Experimental pilot: authenticate the Linux guest") {
         VStack(alignment: .leading, spacing: 10) {
@@ -285,6 +277,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
             .font(.caption).foregroundStyle(.secondary)
         }.padding(8)
       }
+      Text("After the guest passes translation and original-client validation, continue to Identify the Echo for USB assignment and device checks.").font(.callout)
       GroupBox("Workspace result") { selectable(status) }
       Link(
         "Open the installation guide",
