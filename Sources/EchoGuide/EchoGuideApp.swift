@@ -268,6 +268,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
             .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
           Button("Configure Linux translation…") { configureTranslation() }
             .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty || translationPrivilegeToolAvailable != true)
+          Button("Inspect interrupted translation (no password)…") { inspectTranslationInterruption() }
+            .disabled(busy || engine == nil || !workspaceRegistered)
           Button("Check guest connection (no password)…") { inspectGuestConnection() }
             .disabled(busy || engine == nil || !workspaceRegistered)
           if translationPrivilegeToolAvailable == false {
@@ -553,6 +555,19 @@ private enum GuideStep: String, CaseIterable, Identifiable {
         try await engine.configureOwnedGuestTranslation(utm: utm, password: password)
         status = "Linux translation setup completed. Gracefully stop and start this workspace, then validate the owned guest and original client. Workspace readiness has not yet been established."
       } catch { status = "Guest translation setup stopped: \(error.localizedDescription). No automatic retry; inspect before another attempt." }
+      refresh()
+      busy = false
+    }
+  }
+
+  private func inspectTranslationInterruption() {
+    guard let engine,
+      let utm = selectWorkspaceUTM(message: "Select the pinned UTM application for read-only owned-workspace inspection.") else { return }
+    busy = true
+    operation = "Inspecting interrupted translation; no setup, restart or repair…"
+    Task {
+      do { status = try encoded(try await engine.inspectInterruptedTranslation(utm: utm)) }
+      catch { status = "Interrupted translation inspection stopped: \(error.localizedDescription)" }
       refresh()
       busy = false
     }
