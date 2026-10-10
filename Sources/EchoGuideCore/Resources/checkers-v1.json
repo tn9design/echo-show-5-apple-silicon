@@ -56,6 +56,12 @@
       "sha256": "6405cd67ea68f5151aa7aeb8c6fc8b85159394400d8411a4d1bca6c4df041fc0",
       "publisherURL": null,
       "size": 4572
+    },
+    {
+      "name": "translation-attempt.sh",
+      "sha256": "c292f86d9c33bf1078e2c8b53629f6fba0523e134b5927ec13bb2476f013be4e",
+      "publisherURL": null,
+      "size": 5674
     }
   ]
 }

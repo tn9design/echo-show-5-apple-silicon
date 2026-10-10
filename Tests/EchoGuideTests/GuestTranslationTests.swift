@@ -49,6 +49,9 @@ final class GuestTranslationTests: XCTestCase {
   func testBundledScriptMatchesPinnedProfile() throws {
     XCTAssertTrue(FileManager.default.fileExists(atPath: try GuestAdapter.bundledTranslationSetup().path))
   }
+  func testBundledSupervisionHelperMatchesProfile() throws {
+    XCTAssertTrue(FileManager.default.fileExists(atPath: try GuestAdapter.bundledTranslationAttemptHelper().path))
+  }
   func testSetupUsesPinnedTransferAndOnePrivatePasswordSubmission() async throws {
     let runner = TranslationCommands(), input = TranslationInput()
     let (guest, folder) = try guest(runner)

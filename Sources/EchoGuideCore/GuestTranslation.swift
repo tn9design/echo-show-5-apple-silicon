@@ -15,6 +15,20 @@ extension GuestAdapter {
     return url
   }
 
+  /// Authenticates the supervision helper only; never dispatches it.
+  public static func bundledTranslationAttemptHelper() throws -> URL {
+    guard let url = Bundle.module.url(forResource: "translation-attempt", withExtension: "sh") else {
+      throw GuideError.stopped("Bundled translation supervision helper missing")
+    }
+    let artifact = try CompatibilityProfile.bundled().artifact(named: "translation-attempt.sh")
+    let bytes = try Data(contentsOf: url)
+    let hash = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+    guard hash == artifact.sha256, artifact.size == Int64(bytes.count) else {
+      throw BackendFailure(.hashMismatch, "Bundled translation supervision helper hash mismatch")
+    }
+    return url
+  }
+
   /// Fixed guest provisioning only. Password input and guest output never enter diagnostics.
   func configureTranslation(password: String, sensitiveRunner: any SensitiveCommandRunning,
     beforeSetup: @Sendable () throws -> Void = {}) async throws {

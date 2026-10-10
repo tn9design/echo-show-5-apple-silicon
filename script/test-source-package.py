@@ -29,6 +29,8 @@ with zipfile.ZipFile(archive) as package:
                 'Sources/EchoGuideCore/Resources/checkers-v1.json',
                 'Sources/EchoGuideCore/Resources/compare-mock.py',
                 'Sources/EchoGuideCore/Resources/setup-linux-translation.sh',
+                'Sources/EchoGuideCore/Resources/translation-attempt.sh',
+                'tools/test-translation-attempt.py',
                 'Assets/EchoGuide-icon.png', 'Assets/EchoGuide.icns',
                 'script/build-icon.sh',
                 'skills/echo-guide/SKILL.md', 'script/automation.entitlements',

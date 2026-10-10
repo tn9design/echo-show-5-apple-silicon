@@ -13,6 +13,8 @@ jobs:
         run: python3 script/test-ai-interfaces.py "$(swift build --show-bin-path)"
       - name: Translation configuration checks without a guest
         run: python3 tools/test-linux-translation.py
+      - name: Translation supervision checks without a guest
+        run: python3 tools/test-translation-attempt.py
       - name: Bounded unlock metadata checks without a device
         run: python3 tools/test-bounded-unlock.py
       - name: Source packaging
