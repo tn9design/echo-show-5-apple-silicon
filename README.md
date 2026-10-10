@@ -29,6 +29,14 @@ One device reached TWRP, successfully installed LineageOS 18.1 v0.7, completed s
 
 To add an assistant after the app is set up, follow [AI setup and the portable skill](docs/ai-integration.md). For current limits and test results, read [implementation status](docs/prototype-status.md) and [test evidence](docs/implementation-results.md).
 
+## Ask your AI to help
+
+Share this repository URL with your assistant and paste:
+
+> Help me install LineageOS on my Echo Show 5 using this repository. Read `README.md`, `docs/install-guide.md`, `docs/prototype-status.md`, and `skills/echo-guide/SKILL.md` first. Verify my exact Echo model/bootloader and computer compatibility before proceeding. The guided app is unfinished; do not assume guest bootstrap or installation is validated. Follow the documented manual path if appropriate, keep backups local and verify them, and ask before destructive actions. Stop on unknown results rather than treating a timeout as success.
+
+Reading the skill provides guidance; it does not automatically install the local MCP server or grant device access. Use [AI integration setup](docs/ai-integration.md) for supported local tooling. The assistant must be able to read the repository files; if it cannot, provide those files before proceeding. No AI subscription is required to use the guide.
+
 ## Installation checkpoints
 
 Follow the [detailed walkthrough](docs/install-guide.md) in this order. Advance only after the current checkpoint is established:
