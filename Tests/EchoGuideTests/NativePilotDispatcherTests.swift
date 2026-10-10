@@ -102,3 +102,63 @@ final class NativePilotDispatcherTests: XCTestCase {
     XCTAssertThrowsError(try e.approve(requestID: req.id))
   }
 }
+
+private actor NativeRecoveryInstallRunner: BinaryCommandRunning {
+  var installed = false
+  let artifact: Artifact
+  init(artifact: Artifact) { self.artifact = artifact }
+  func run(executable: String, arguments: [String]) async throws -> CommandResult {
+    if arguments.last == "ro.product.device" { return CommandResult(stdout: "checkers") }
+    if arguments.last == "ro.twrp.version" { return CommandResult(stdout: "3.7.0_9-0") }
+    if arguments.contains("sha256sum") { return CommandResult(stdout: artifact.sha256 + "  " + ROMStagingAdapter.destination + "\n") }
+    if arguments.contains("stat") { return CommandResult(stdout: String(artifact.size!) + "\n") }
+    if arguments.contains("wipe") { return CommandResult(stdout: "") }
+    if arguments.contains("install") { installed = true; return CommandResult(stdout: "") }
+    if arguments.contains("/tmp/recovery.log") { return CommandResult(stdout: installed ? "prior\nInstalling zip file '\(ROMStagingAdapter.destination)'\nUpdater process ended with RC=0\nI:operation_end - status=0\n" : "prior\n") }
+    if arguments.last == "reboot" { return CommandResult(stdout: "") }
+    throw GuideError.stopped("Unexpected recovery fixture")
+  }
+  func runToFile(executable: String, arguments: [String], destination: URL) async throws -> CommandResult { throw GuideError.stopped("Unexpected capture") }
+}
+extension NativePilotDispatcherTests {
+  func testRecoveryEntryInstallsWithHostProofWithoutVMGuestOrUnlockTransport() async throws {
+    let profile = try CompatibilityProfile.bundled()
+    let artifact = try profile.artifact(named: ROMStagingAdapter.filename)
+    let runner = NativeRecoveryInstallRunner(artifact: artifact)
+    let engine = try WorkflowEngine(root: URL(fileURLWithPath: "/private/tmp").appendingPathComponent(UUID().uuidString), runner: runner)
+    defer { try? FileManager.default.removeItem(at: engine.store.root) }
+    let folder = engine.store.root.appendingPathComponent("backups")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    var entries: [VerifiedPartitionBackup] = []
+    for (index, name) in ["boot", "recovery", "system", "userdata", "metadata"].enumerated() {
+      let file = folder.appendingPathComponent(name + ".img")
+      try Data(repeating: UInt8(index), count: 1_048_576).write(to: file)
+      entries.append(VerifiedPartitionBackup(partition: Partition(name: name, device: "/dev/block/mmcblk0p\(index + 1)", size: 1_048_576), filename: file.lastPathComponent, sha256: try RecoveryAdapter.hash(file)))
+    }
+    let manifest = folder.appendingPathComponent("verified-backups.json")
+    try JSONEncoder().encode(entries).write(to: manifest)
+    try engine.store.transaction { s in
+      s.device = DeviceIdentity(serial: "FIXTURE", product: profile.product, lkBuild: "not verified in recovery", recoveryVersion: profile.recoveryVersion)
+      s.phase = .backedUp; s.adbPath = "/fixture/adb"; s.backupManifest = manifest.path; s.stagedROMHash = artifact.sha256
+    }
+    let request = try engine.requestApproval(action: .install)
+    let host = host(true)
+    let dispatcher = NativePilotDispatcher(engine: engine, gate: .experimentalOptIn, environment: { _ in NativePilotEnvironmentProof(host: host, guest: nil) })
+    let result = try await dispatcher.dispatch(nativeConfirmedRequestID: request.id)
+    guard case .installedAwaitingUserStartup = result else { return XCTFail("Expected installation") }
+    XCTAssertEqual(try engine.status().phase, .installed)
+    XCTAssertNil(try engine.status().vmID); XCTAssertNil(try engine.status().guest)
+  }
+  func testUnlockCannotUseHostOnlyProofOrAbsentTransport() async throws {
+    let (engine, request) = try fixture()
+    defer { try? FileManager.default.removeItem(at: engine.store.root) }
+    try engine.store.transaction { $0.vmID = nil; $0.guest = nil }
+    let host = host(true); let transport = NativePilotFixture()
+    let dispatcher = NativePilotDispatcher(engine: engine, gate: .experimentalOptIn, environment: { _ in NativePilotEnvironmentProof(host: host, guest: nil) }, unlockTransport: transport)
+    do { _ = try await dispatcher.dispatch(nativeConfirmedRequestID: request.id); XCTFail("Host-only unlock") } catch {}
+    let count = await transport.count(); XCTAssertEqual(count, 0)
+    XCTAssertEqual(try engine.status().pendingApproval?.id, request.id)
+    let missing = NativePilotDispatcher(engine: engine, gate: .experimentalOptIn, environment: { _ in NativePilotEnvironmentProof(host: host, guest: nil) })
+    do { _ = try await missing.dispatch(nativeConfirmedRequestID: request.id); XCTFail("Missing transport") } catch {}
+  }
+}

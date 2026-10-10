@@ -1,7 +1,7 @@
 import Foundation
 
 struct NativePilotSelection: Sendable, Equatable {
-  let utm: URL
+  let utm: URL?
   let unlockPayload: URL?
 }
 struct NativeApprovalSummary: Sendable {
@@ -41,12 +41,12 @@ final class NativeApprovalController {
     self.dispatch = dispatch; self.now = now
     let profile = engine.profile
     self.validateSelection = validateSelection ?? { selection, action in
-      guard selection.utm.isFileURL, selection.utm.pathExtension == "app",
-        selection.utm.standardizedFileURL == selection.utm.resolvingSymlinksInPath().standardizedFileURL,
-        try selection.utm.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true else {
-        throw GuideError.stopped("Select the local UTM application; ownership is checked before dispatch")
-      }
       if action == .unlock {
+        guard let utm = selection.utm, utm.isFileURL, utm.pathExtension == "app",
+          utm.standardizedFileURL == utm.resolvingSymlinksInPath().standardizedFileURL,
+          try utm.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true else {
+          throw GuideError.stopped("Select the local UTM application; ownership is checked before dispatch")
+        }
         guard let payload = selection.unlockPayload, payload.isFileURL,
           payload.standardizedFileURL == payload.resolvingSymlinksInPath().standardizedFileURL else {
           throw GuideError.stopped("Native selection requires the pinned unlock payload")
@@ -58,8 +58,8 @@ final class NativeApprovalController {
           try RecoveryAdapter.hash(payload) == artifact.sha256 else {
           throw GuideError.stopped("Selected unlock payload changed or is unsupported")
         }
-      } else if selection.unlockPayload != nil {
-        throw GuideError.stopped("Installation does not select an unlock payload")
+      } else if selection.unlockPayload != nil || selection.utm != nil {
+        throw GuideError.stopped("Installation does not select UTM or an unlock payload")
       }
     }
   }

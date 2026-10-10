@@ -58,8 +58,9 @@ final class NativePilotEnvironmentProverTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: e.store.root) }
     let original = try e.status()
     let proof = try await prover(e).prove(session: original)
-    XCTAssertEqual(proof.guest.vmID, original.guest?.vmID)
-    XCTAssertLessThan(Date().timeIntervalSince(proof.guest.checkedAt), 1)
+    let observedGuest = try XCTUnwrap(proof.guest)
+    XCTAssertEqual(observedGuest.vmID, original.guest?.vmID)
+    XCTAssertLessThan(Date().timeIntervalSince(observedGuest.checkedAt), 1)
     XCTAssertEqual(try e.status().guest?.checkedAt, .distantPast)
     XCTAssertTrue(try e.status().operations.isEmpty)
     let calls = await runner.calls(); XCTAssertEqual(calls, 1)
