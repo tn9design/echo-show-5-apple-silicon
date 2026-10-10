@@ -5,7 +5,7 @@
 ## 1. Make the Linux workspace usable
 
 - The disposable guest account is now confirmed as `echotest`: direct console login succeeded, its home directory is `/home/echotest`, and SSH is active. The earlier assumed `user` account was absent. Validate the corrected native account selection and bootstrap; do not reset the working password.
-- After direct account authentication succeeds, authenticate through the app’s serial bootstrap. The serial reader preserves framed bytes; an in-progress or missing initial prompt stops without submitting credentials and requires explicit inspection or graceful restart.
+- The interactive-shell framing defect is reproduced and fixed; `tools/serial-bootstrap-harness/run-harness.sh` verifies current code against old/fixed Readline behavior without a VM. After direct account authentication succeeds, authenticate through the app’s serial bootstrap. The serial reader preserves framed bytes; an in-progress or missing initial prompt stops without submitting credentials and requires explicit inspection or graceful restart.
 - Use the isolated app session (`--state-root ABSOLUTE_DIRECTORY`) to avoid changing an existing installation session. Two distinct managed VM identities are recorded, but neither has established fresh authenticated guest readiness.
 - Enable translation and confirm it survives a guest restart.
 - Validate the implemented native serial login on the pinned Debian baseline. It makes one attempt using the temporary password entered in the app; failed or unknown prompts stop without retry.
