@@ -67,6 +67,13 @@ struct GuestIdentificationAdapter: Sendable {
   }
 }
 
+private struct IdentificationOwnedVMRunner: CommandRunning {
+  let runner: any TimedCommandRunning
+  func run(executable: String, arguments: [String]) async throws -> CommandResult {
+    try await runner.run(executable: executable, arguments: arguments, timeoutSeconds: 25)
+  }
+}
+
 extension WorkflowEngine {
   private func identificationAdapter(clearIdentity: Bool) throws -> GuestIdentificationAdapter {
     let state = try status()
@@ -82,13 +89,44 @@ extension WorkflowEngine {
       credentialsDirectory: store.root.appendingPathComponent("guest-" + saved.vmID.uuidString), address: saved.address)
     return GuestIdentificationAdapter(guest: guest, profile: profile, fingerprint: saved.hostKeyFingerprint)
   }
-  public func discoverFastbootDevices() async throws -> [FastbootCandidate] {
-    try await operation("discover_fastboot") { try await self.identificationAdapter(clearIdentity: false).discover() }
+  private func verifyIdentificationOwnership(utm: URL, adapter: GuestIdentificationAdapter, intent: Data) async throws {
+    let intentURL = store.root.appendingPathComponent("workspace-intent.json")
+    guard intentURL.standardizedFileURL == intentURL.resolvingSymlinksInPath(),
+      try intentURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true,
+      try Data(contentsOf: intentURL) == intent,
+      let timed = runner as? any TimedCommandRunning else { throw GuideError.stopped("Owned VM inspection prerequisites changed") }
+    let specification = try JSONDecoder().decode(OwnedVMSpecification.self, from: intent)
+    let utmAdapter = UTMAdapter(runner: IdentificationOwnedVMRunner(runner: timed), application: utm)
+    let observed = try await utmAdapter.info(specification: specification, vmID: adapter.guest.ownedVMID)
+    guard observed.backend == "apple", observed.state == .started else { throw GuideError.stopped("Exact owned Apple workspace must be started before identification") }
+    guard try Data(contentsOf: intentURL) == intent, intentURL.standardizedFileURL == intentURL.resolvingSymlinksInPath() else { throw GuideError.stopped("Workspace intent changed during ownership inspection") }
+    let state = try status()
+    guard state.vmID == adapter.guest.ownedVMID.uuidString, state.guest?.vmID == adapter.guest.ownedVMID,
+      state.guest?.ready == true, state.guest?.address == adapter.guest.address,
+      state.guest?.hostKeyFingerprint == adapter.fingerprint else { throw GuideError.stopped("Owned guest session changed during identification") }
   }
-  public func identifyFastbootDevice(serial: String) async throws -> DeviceIdentity {
+  private func identificationIntent() throws -> Data {
+    let url = store.root.appendingPathComponent("workspace-intent.json")
+    guard url.standardizedFileURL == url.resolvingSymlinksInPath(), try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { throw GuideError.stopped("Owned workspace intent is not a private regular file") }
+    return try Data(contentsOf: url)
+  }
+  public func discoverFastbootDevices(utm: URL) async throws -> [FastbootCandidate] {
+    try await operation("discover_fastboot") {
+      let adapter = try self.identificationAdapter(clearIdentity: false)
+      let intent = try self.identificationIntent()
+      try await self.verifyIdentificationOwnership(utm: utm, adapter: adapter, intent: intent)
+      let devices = try await adapter.discover()
+      try await self.verifyIdentificationOwnership(utm: utm, adapter: adapter, intent: intent)
+      return devices
+    }
+  }
+  public func identifyFastbootDevice(utm: URL, serial: String) async throws -> DeviceIdentity {
     try await operation("identify_fastboot") {
       let adapter = try self.identificationAdapter(clearIdentity: true)
+      let intent = try self.identificationIntent()
+      try await self.verifyIdentificationOwnership(utm: utm, adapter: adapter, intent: intent)
       let device = try await adapter.identify(serial: serial)
+      try await self.verifyIdentificationOwnership(utm: utm, adapter: adapter, intent: intent)
       try self.store.transaction { s in
         guard s.phase == .workspace, s.device == nil, s.guest?.ready == true, s.vmID == adapter.guest.ownedVMID.uuidString,
           s.guest?.address == adapter.guest.address,

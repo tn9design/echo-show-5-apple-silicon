@@ -577,27 +577,27 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   }
 
   private func discoverFastboot() {
-    guard let engine else { return }
+    guard let engine, let utm = selectFile(message: "Select the verified UTM application. EchoGuide will freshly verify this session’s exact owned VM is running before listing fastboot devices.") else { return }
     busy = true; fastbootSupported = false; fastbootCandidates = []; fastbootSerial = ""
     operation = "Rechecking guest readiness and listing fastboot devices…"
     Task {
       defer { busy = false; refresh() }
       do {
-        fastbootCandidates = try await engine.discoverFastbootDevices()
+        fastbootCandidates = try await engine.discoverFastbootDevices(utm: utm)
         status = fastbootCandidates.isEmpty ? "No fastboot devices observed in the owned guest. Check FASTBOOT mode, the data cable, and accessory assignment." : "Guest enumeration completed. Explicitly select the Echo, then verify its exact build."
       } catch { status = "Guest enumeration stopped: \(error.localizedDescription). Visibility remains unknown." }
     }
   }
 
   private func identifyFastboot() {
-    guard let engine else { return }
+    guard let engine, let utm = selectFile(message: "Select the verified UTM application for a fresh owned-workspace check before and after read-only Echo identification.") else { return }
     let selected = fastbootSerial
     busy = true; fastbootSupported = false
     operation = "Verifying the selected Echo’s product, lock state, and exact bootloader…"
     Task {
       defer { busy = false; refresh() }
       do {
-        let identity = try await engine.identifyFastbootDevice(serial: selected)
+        let identity = try await engine.identifyFastbootDevice(utm: utm, serial: selected)
         fastbootSupported = true
         status = "Supported identity verified: \(identity.product), bootloader \(identity.lkBuild). This read-only check did not unlock or enter recovery."
       } catch { status = "Compatibility verification stopped: \(error.localizedDescription). No unlock was attempted." }
@@ -700,15 +700,13 @@ private enum GuideStep: String, CaseIterable, Identifiable {
         ? "Attempt the reviewed bootloader unlock. Permanent device damage is possible. Keep wall power connected during the attempt and for five minutes afterward."
         : "Erase data, system, and cache, install the pinned LineageOS ROM, then reboot only after verified installation. Stock apps and settings are removed; verified backups remain private on your Mac."
       alert.informativeText = "Device: \(request.device.product)\nSerial: \(request.device.serial)\nBootloader: \(request.device.lkBuild)\nRecovery: \(request.device.recoveryVersion ?? "not verified")\n\n\(action)\n\nApproval expires five minutes after \(request.createdAt.formatted(date: .omitted, time: .standard)). Changed device or prerequisites invalidate it.\nSession: \(request.sessionID.uuidString)\nEvidence fingerprint: \(request.prerequisitesDigest)\n\nUnlock, wipes, installation, and reboot are disabled in this source preview; reviewing this request cannot enable them."
-      alert.addButton(withTitle: "Cancel")
-      alert.addButton(withTitle: "Approve this request")
+      alert.addButton(withTitle: "Close preview review")
+      alert.addButton(withTitle: "Decline pending request")
       if alert.runModal() == .alertSecondButtonReturn {
-        try engine.approve(requestID: request.id)
-        status =
-          "Native approval recorded. An approval alone does not prove an operation ran or succeeded."
-      } else {
         try engine.rejectApproval(requestID: request.id)
         status = "Request declined; no operation authorized."
+      } else {
+        status = "Preview reviewed; no approval was recorded and no device operation ran."
       }
       refresh()
     } catch {

@@ -197,6 +197,9 @@ public final class WorkflowEngine: @unchecked Sendable {
     let r = runner
     let arch = try await r.run(executable: "/usr/bin/uname", arguments: ["-m"])
     let os = try await r.run(executable: "/usr/bin/sw_vers", arguments: ["-productVersion"])
+    guard arch.exitCode == 0, os.exitCode == 0 else {
+      throw GuideError.stopped("Mac architecture or operating-system inspection failed; backend support is unknown")
+    }
     let usb = try await r.run(executable: "/usr/sbin/ioreg", arguments: ["-a", "-p", "IOUSB"])
     let a = arch.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     let v = os.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
