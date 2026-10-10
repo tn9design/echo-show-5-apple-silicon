@@ -22,7 +22,7 @@
 
 ## 3. Complete the assistant handoff
 
-- Test the documented MCP configuration in Codex and Claude Desktop.
+- Extend the completed ephemeral Codex powered-wait smoke to progress and native request handoffs, and test Claude Desktop. Persistent client configurations remain untested.
 - Verify that a request reaches the running app, displays the exact action/device, and cannot be approved by the assistant.
 - Check app-closed, stale-request, concurrent-operation and changed-device behavior.
 
@@ -31,7 +31,7 @@
 ## 4. Connect the supervised installer
 
 - Integrate the reviewed bounded unlock sequence, operation journal, powered wait and independent recovery verification.
-- Connect the implemented internal ROM staging and device-side hash verification to the native flow before the erase confirmation.
+- Validate the implemented native pinned-ROM chooser and device-side staging action on an authorized recovery device before any erase confirmation. Offline checked-wrapper tests and app compilation passed; no fresh live staging was performed.
 - Connect wipes, installation, current-invocation log verification, log preservation and reboot to the native approval path.
 - Test crashes and ambiguous results with fake runners before enabling any live dispatch.
 

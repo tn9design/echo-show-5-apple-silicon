@@ -66,8 +66,10 @@ extension WorkflowEngine {
   /// all attempts, and the powered wait; interrupted writes are never replayed.
   func unlockPinnedDevice(requestID: UUID, transport: any UnlockTransport,
       clock: any UnlockClock,
+      hostPrerequisite: (@Sendable (SessionRecord) async throws -> Void)? = nil,
       progress: (@Sendable (UnlockProgress) -> Void)? = nil) async throws -> UnlockOutcome {
     try await withFreshConsumedApproval(requestID: requestID, validator: { state in
+      try await hostPrerequisite?(state)
       guard state.phase == .identified, state.pendingApproval?.action == .unlock,
         let device = state.device, device.product == self.profile.product,
         device.lkBuild == self.profile.lkBuild,
@@ -87,6 +89,7 @@ extension WorkflowEngine {
           PilotSequence.exactGetvar(result.stdout + result.stderr, key: key, expected: expected)
         else { throw GuideError.stopped("Fresh unlock identity mismatch: " + key) }
       }
+      try await hostPrerequisite?(state)
       return FreshApprovalEvidence(prerequisites: try ApprovalPrerequisites.capture(
         session: state, action: .unlock, profile: self.profile), checkedAt: Date())
     }, callback: { consumed in

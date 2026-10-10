@@ -13,3 +13,5 @@ Use the installed EchoGuide MCP tools or companion CLI. Read [integration guidan
 6. Report only observed outcomes. Without authorized Android debugging, ask the person to confirm setup/home screen. Leave Update Lineage Recovery unchecked to retain TWRP. Record Wi-Fi, touch, audio, microphone, camera, and reboot checks individually.
 
 Use `report` for shareable diagnostics and let the person review it. Do not share raw session state, private paths, addresses, full serials, passwords, or keys. Do not expose arbitrary commands, change retry timing/payloads, bypass approval, or disable Gatekeeper. Preparation and approval requests in preview builds are not a finished installer.
+
+Client validation is narrow: an ephemeral Codex read-only powered-wait call passed. Do not infer approval, backup, or installation client validation, and do not describe Claude Desktop as tested.

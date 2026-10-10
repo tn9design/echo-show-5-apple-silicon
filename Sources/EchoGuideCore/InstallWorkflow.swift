@@ -3,9 +3,11 @@ import Foundation
 extension WorkflowEngine {
   /// Internal pilot integration only. There is no public app/CLI/MCP dispatcher.
   /// The native release gate remains closed independently of this tested sequence.
-  func installPinnedROM(requestID: UUID, adb: URL) async throws {
+  func installPinnedROM(requestID: UUID, adb: URL,
+      hostPrerequisite: (@Sendable (SessionRecord) async throws -> Void)? = nil) async throws {
     let log = store.root.appendingPathComponent("install-recovery.log")
     try await withFreshConsumedApproval(requestID: requestID, validator: { state in
+      try await hostPrerequisite?(state)
       guard adb.isFileURL, adb.path.hasPrefix("/"), state.adbPath == adb.path,
         state.phase == .backedUp, state.profileID == self.profile.id,
         let device = state.device, device.product == self.profile.product,
@@ -32,6 +34,7 @@ extension WorkflowEngine {
         size.exitCode == 0, size.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == String(bytes) else {
         throw GuideError.stopped("Fresh device ZIP verification failed; no wipe started")
       }
+      try await hostPrerequisite?(state)
       let evidence = try ApprovalPrerequisites(session: state, action: .install,
         profile: self.profile, backupManifestData: manifest)
       return FreshApprovalEvidence(prerequisites: evidence, checkedAt: Date())

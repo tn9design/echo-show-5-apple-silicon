@@ -15,6 +15,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   case inspect = "Check your Mac"
   case prepare = "Prepare downloads"
   case workspace = "Linux workspace"
+  case identify = "Identify the Echo"
   case recovery = "Recovery and backups"
   case install = "Installation"
   case diagnostics = "Troubleshooting"
@@ -24,6 +25,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     case .inspect: "desktopcomputer"
     case .prepare: "arrow.down.circle"
     case .workspace: "externaldrive"
+    case .identify: "cable.connector"
     case .recovery: "shield.lefthalf.filled"
     case .install: "checkmark.circle"
     case .diagnostics: "doc.text.magnifyingglass"
@@ -45,9 +47,15 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   @State private var pendingApproval: ApprovalRequest?
   @State private var adbURL: URL?
   @State private var deviceSerial = ""
+  @State private var fastbootCandidates: [FastbootCandidate] = []
+  @State private var fastbootSerial = ""
+  @State private var fastbootSupported = false
+  @State private var guestIdentificationReady = false
+  @State private var macUSBVisibility = "Not checked in this app session"
   @State private var recoveryDevices: [ADBDevice] = []
   @State private var verifiedRecoverySerial: String?
   @State private var guestConsoleReady = false
+  @State private var workspaceRegistered = false
   @State private var guestPassword = ""
   @State private var backupProgress: BackupProgress?
   @State private var activeBackupID: UUID?
@@ -166,27 +174,28 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       Text(
         "Linux translation and the first USB assignment require a user action in UTM/macOS. Workspace creation is available as pilot integration; guest bootstrap is still being validated, so creation does not establish readiness."
       )
+      Button("Create managed UTM workspace…") { prepareWorkspace() }.disabled(busy || engine == nil)
+      Text("After creation, configure only the workspace recorded in this session. Then start it and complete Debian setup before guest authentication.").font(.callout)
       instruction(
-        "0", "Enable installer input",
+        "1", "Enable installer input",
         "Before starting the app-owned VM, open Edit → Virtualization. Set Keyboard to Generic USB and Pointer to Generic Mouse, then Save. UTM’s scripting interface does not configure these devices. Confirm the Debian menu responds to arrow keys before continuing; a visible boot menu alone does not establish readiness."
       )
       instruction(
-        "1", "Enable Linux translation",
+        "2", "Enable Linux translation",
         "In the app-owned UTM VM configuration, enable Rosetta translation for Linux. Do not change an unrelated VM."
       )
       instruction(
-        "2", "Assign the Echo to UTM",
+        "3", "Assign the Echo to UTM only when needed",
         "At the top right of the Mac menu bar, open the accessories icon. Select Android → Use with UTM. Leave your mouse, charger, and other accessories on This Mac."
       )
       instruction(
-        "3", "Attach to the correct VM",
+        "4", "Attach to the correct VM",
         "In UTM, open Virtual Machine → USB Devices and choose the Echo for the workspace identified by this session. A successful attachment still requires guest identity checks."
       )
-      Button("Create managed UTM workspace…") { prepareWorkspace() }.disabled(busy || engine == nil)
       VStack(alignment: .leading, spacing: 8) {
         Button("Reconcile interrupted workspace creation…") { workspaceLifecycle(.reconcile) }
-        Button("Start owned workspace…") { workspaceLifecycle(.start) }
-        Button("Gracefully stop owned workspace…") { workspaceLifecycle(.stop) }
+        Button("Start owned workspace…") { workspaceLifecycle(.start) }.disabled(!workspaceRegistered)
+        Button("Gracefully stop owned workspace…") { workspaceLifecycle(.stop) }.disabled(!workspaceRegistered)
       }.disabled(busy || engine == nil)
       Text("These actions inspect or control only the workspace recorded by this session. Observed VM state does not prove guest or USB readiness. Reconciliation never silently creates a replacement; stop requests are graceful, never forced.")
         .font(.caption).foregroundStyle(.secondary)
@@ -199,9 +208,9 @@ private enum GuideStep: String, CaseIterable, Identifiable {
           Text("The password is used in memory for this action, cleared from the field immediately, and never saved to the session or diagnostics. Re-enter it for another action.")
             .font(.caption).foregroundStyle(.secondary)
           Button("Bootstrap owned guest SSH…") { bootstrapGuest() }
-            .disabled(busy || engine == nil || !guestConsoleReady || guestPassword.isEmpty)
+            .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
           Button("Validate owned guest and original client…") { validateGuest() }
-            .disabled(busy || engine == nil || !guestConsoleReady || guestPassword.isEmpty)
+            .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
           Text("For validation, choose the original publisher fastboot binary. The app uses its bundled, hash-verified protocol helper and checks the binary’s pinned hash before an offline test; it does not contact the Echo.")
             .font(.caption).foregroundStyle(.secondary)
           Text("Successful trust acquisition is separate from Linux translation, client validation, and USB readiness. Do not treat it as an installation prerequisite pass.")
@@ -215,9 +224,31 @@ private enum GuideStep: String, CaseIterable, Identifiable {
           string:
             "https://github.com/tn9design/echo-show-5-apple-silicon/blob/main/docs/install-guide.md"
         )!)
+    case .identify:
+      Text("Keep the Echo’s wall power connected. Put it into FASTBOOT using the supported device guide, and connect its Micro-USB data cable. This screen performs read-only checks; it does not unlock the Echo.")
+      instruction("1", "Assign only the Echo", "In the Mac menu bar’s Virtual Machine Accessories icon, choose Android → Use with UTM. In UTM, open Virtual Machine → USB Devices and attach it to this session’s workspace. Leave unrelated accessories on This Mac.")
+      GroupBox("Separate connection evidence") {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Visible to this Mac: \(macUSBVisibility)")
+          Text("Assigned to Linux workspace: \(fastbootCandidates.isEmpty ? "not established by guest enumeration" : "fastboot candidates observed; choose one below")")
+          Text("Supported device/build: \(fastbootSupported ? "verified for the selected Echo" : "not verified")")
+          Text("Recovery compatibility: checked separately in Recovery and backups.")
+        }.padding(8)
+      }
+      Button("List fastboot devices in owned Linux workspace") { discoverFastboot() }
+        .disabled(busy || engine == nil || !guestIdentificationReady)
+      Picker("Selected fastboot device", selection: $fastbootSerial) {
+        Text("Choose a device…").tag("")
+        ForEach(fastbootCandidates, id: \.serial) { candidate in Text(candidate.serial).tag(candidate.serial) }
+      }.disabled(busy || fastbootCandidates.isEmpty)
+        .onChange(of: fastbootSerial) { _, _ in fastbootSupported = false }
+      Button("Verify selected Echo and exact bootloader build") { identifyFastboot() }
+        .disabled(busy || engine == nil || fastbootSerial.isEmpty || !guestIdentificationReady)
+      Text("If guest enumeration is empty, check the data cable and accessory assignment. A USB name or fastboot serial alone does not prove compatibility. Complete guest validation first if listing is disabled.").font(.caption).foregroundStyle(.secondary)
+      GroupBox("Identification result") { selectable(status) }
     case .recovery:
       Text(
-        "Enter this stage only after compatible TWRP is independently verified. Tap Keep Read Only at the first recovery prompt. Do not wipe anything yet."
+        "If the Echo already shows TWRP, tap Keep Read Only at its first prompt. Select ADB, list devices, choose the Echo, then verify recovery below. Verification must succeed before backups; do not wipe anything."
       )
       Text(
         "Required backups: boot, installed recovery, system, userdata, and metadata. The engine must discover named partitions and compare source/host sizes and hashes before installation. Use the backup action below to capture and verify them. This integration is not yet live-device validated."
@@ -531,6 +562,9 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       let record = try engine.status()
       session = try encoded(record)
       pendingApproval = record.pendingApproval
+      workspaceRegistered = record.vmID != nil
+      if record.phase != .identified || record.device?.serial != fastbootSerial { fastbootSupported = false }
+      guestIdentificationReady = record.guest?.ready == true && record.backupManifest == nil && [.workspace, .identified, .inspectionRequired].contains(record.phase)
       backedUpForStaging = record.phase == .backedUp && record.backupManifest != nil
       romConfigured = record.configuredROMPath != nil
       installationReady = backedUpForStaging && record.stagedROMHash == (try? engine.profile.artifact(named: "lineage-18.1-20260904-UNOFFICIAL-checkers.zip"))?.sha256
@@ -540,6 +574,34 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       postInstallOutcomes = Dictionary((record.postInstallObservations ?? []).map { ($0.check, $0.outcome) }, uniquingKeysWith: { _, newest in newest })
     } catch { status = "Session check stopped: \(error.localizedDescription)" }
     refreshPoweredWait()
+  }
+
+  private func discoverFastboot() {
+    guard let engine else { return }
+    busy = true; fastbootSupported = false; fastbootCandidates = []; fastbootSerial = ""
+    operation = "Rechecking guest readiness and listing fastboot devices…"
+    Task {
+      defer { busy = false; refresh() }
+      do {
+        fastbootCandidates = try await engine.discoverFastbootDevices()
+        status = fastbootCandidates.isEmpty ? "No fastboot devices observed in the owned guest. Check FASTBOOT mode, the data cable, and accessory assignment." : "Guest enumeration completed. Explicitly select the Echo, then verify its exact build."
+      } catch { status = "Guest enumeration stopped: \(error.localizedDescription). Visibility remains unknown." }
+    }
+  }
+
+  private func identifyFastboot() {
+    guard let engine else { return }
+    let selected = fastbootSerial
+    busy = true; fastbootSupported = false
+    operation = "Verifying the selected Echo’s product, lock state, and exact bootloader…"
+    Task {
+      defer { busy = false; refresh() }
+      do {
+        let identity = try await engine.identifyFastbootDevice(serial: selected)
+        fastbootSupported = true
+        status = "Supported identity verified: \(identity.product), bootloader \(identity.lkBuild). This read-only check did not unlock or enter recovery."
+      } catch { status = "Compatibility verification stopped: \(error.localizedDescription). No unlock was attempted." }
+    }
   }
 
   private func configureROM() {
@@ -586,6 +648,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     Task {
       do {
         let result = try await engine.inspect()
+        macUSBVisibility = !result.usbInspectionAvailable ? "inspection unavailable" : result.devices.isEmpty ? "no candidates observed; VM assignment can hide them here" : "USB candidates observed; IDs alone do not prove identity"
         status =
           "Mac: \(result.architecture), macOS \(result.macOS)\n"
           + (result.writingBackendSupported
