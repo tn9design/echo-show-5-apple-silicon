@@ -150,7 +150,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       )
       instruction(
         "0", "Enable installer input",
-        "The scripted Linux VM needs keyboard and pointer input enabled in UTM’s Devices settings before a graphical Debian installation. This integration still needs fresh-guest validation."
+        "Before starting the app-owned VM, open its Edit settings → Devices and enable keyboard and pointer input. UTM’s scripting interface does not configure these devices. Confirm the Debian menu responds to arrow keys before continuing; a visible boot menu alone does not establish readiness."
       )
       instruction(
         "1", "Enable Linux translation",
