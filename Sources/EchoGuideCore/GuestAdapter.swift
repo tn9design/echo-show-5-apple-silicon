@@ -192,6 +192,17 @@ public struct GuestAdapter: Sendable {
       throw GuideError.stopped("Guest validation artifact permissions failed")
     }
   }
+  /// Fixed remote preflight codes distinguish missing translation from SSH transport failures.
+  static func readinessFailure(exitCode: Int32) -> String {
+    switch exitCode {
+    case 41: return "The workspace is not ARM64 Linux. Use the pinned ARM64 Debian workspace."
+    case 42: return "Linux translation is unavailable. Enable Rosetta in the owned VM settings and run the translation setup."
+    case 43: return "Linux translation is not registered or enabled. Run translation setup, then recheck readiness after restart."
+    case 255: return "Authenticated SSH connection failed. Recheck the owned guest address, serial host-key evidence, and client authentication."
+    default: return "Original client artifacts or the offline mock failed validation. Restage the verified assets and recheck readiness."
+    }
+  }
+
   public func readiness() async throws -> GuestReadiness {
     let knownHosts = credentialsDirectory.appendingPathComponent("known_hosts")
     guard FileManager.default.fileExists(atPath: knownHosts.path),
@@ -209,14 +220,14 @@ public struct GuestAdapter: Sendable {
     let helperHash = try profile.artifact(named: "compare-mock.py").sha256
     // Only validated hexadecimal profile hashes enter this fixed command.
     let script =
-      "set -eu; test \"$(uname -m)\" = aarch64; test -x /media/rosetta/rosetta; grep -q '^enabled' /proc/sys/fs/binfmt_misc/rosetta; cd /home/user/echoguide; printf '%s  %s\\n' \(clientHash) fastboot | sha256sum -c - >/dev/null; printf '%s  %s\\n' \(helperHash) compare-mock.py | sha256sum -c - >/dev/null; printf '%s  %s\\n' ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7 mock.img | sha256sum -c - >/dev/null; ./fastboot --version; python3 compare-mock.py --fastboot ./fastboot --image mock.img"
+      "set -eu; test \"$(uname -m)\" = aarch64 || exit 41; test -x /media/rosetta/rosetta || exit 42; grep -q '^enabled' /proc/sys/fs/binfmt_misc/rosetta || exit 43; cd /home/user/echoguide; printf '%s  %s\\n' \(clientHash) fastboot | sha256sum -c - >/dev/null; printf '%s  %s\\n' \(helperHash) compare-mock.py | sha256sum -c - >/dev/null; printf '%s  %s\\n' ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7 mock.img | sha256sum -c - >/dev/null; ./fastboot --version; python3 compare-mock.py --fastboot ./fastboot --image mock.img"
     let result = try await runner.run(
       executable: "/usr/bin/ssh", arguments: try arguments(command: script))
     guard result.exitCode == 0 else {
       return GuestReadiness(
         ready: false,
         reason:
-          "Guest architecture, translation, original client, or offline mock failed validation.",
+          Self.readinessFailure(exitCode: result.exitCode),
         hostKeyFingerprint: nil)
     }
     guard result.stdout.contains("fastboot version 28.0.0"),

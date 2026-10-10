@@ -57,6 +57,31 @@ final class PublisherOperationTests: XCTestCase {
     XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("downloads").path).isEmpty)
   }
 
+  func testExactWaiterKeepsEarlierOutcomeWhenLaterOperationStarts() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let engine = try WorkflowEngine(root: root)
+    let first = try engine.startPublisherDownloads(transport: PublisherOperationFixture(directory: root))
+    do { try await engine.waitForPublisherDownloads(operationID: first.id); XCTFail("Expected first HTTP failure") } catch {}
+    let second = try engine.startPublisherDownloads(transport: PublisherOperationFixture(directory: root, cancel: true))
+    do { try await engine.waitForPublisherDownloads(operationID: first.id); XCTFail("Earlier failure was lost") }
+    catch { XCTAssertTrue(error.localizedDescription.contains("failed")) }
+    XCTAssertNil(try engine.status().operations.first(where: { $0.id == second.id })?.completedAt)
+    do { try await engine.waitForPublisherDownloads(operationID: second.id); XCTFail("Expected cancellation") }
+    catch { XCTAssertTrue(error.localizedDescription.contains("cancelled")) }
+    XCTAssertEqual(try engine.status().operations.count, 2)
+  }
+
+  func testRegularFileCannotBeUsedAsOwnedDownloadDirectory() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let engine = try WorkflowEngine(root: root)
+    try Data("preserve".utf8).write(to: root.appendingPathComponent("downloads"))
+    XCTAssertThrowsError(try engine.startPublisherDownloads(transport: PublisherOperationFixture(directory: root)))
+    XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("downloads")), Data("preserve".utf8))
+    XCTAssertTrue(try engine.status().operations.isEmpty)
+  }
+
   func testSymlinkOwnedDirectoryStopsBeforeReservation() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

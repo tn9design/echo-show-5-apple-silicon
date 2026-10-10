@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// Reviewed sequence is testable without enabling live dispatch in the preview.
 struct PilotSequence: Sendable {
@@ -64,7 +65,18 @@ struct PilotSequence: Sendable {
     let installation = try await runner.run(
       executable: adb, arguments: ["-s", serial, "shell", "twrp", "install", zip])
     let log = try await run(["shell", "cat", "/tmp/recovery.log"])
-    try Data(log.stdout.utf8).write(to: saveLog, options: .atomic)
+    // Preserve evidence privately before any reboot; never overwrite an earlier log.
+    let descriptor = open(saveLog.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+    guard descriptor >= 0 else { throw GuideError.stopped("Cannot create private recovery log; no reboot") }
+    let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    do {
+      try handle.write(contentsOf: Data(log.stdout.utf8))
+      try handle.synchronize()
+      try handle.close()
+    } catch {
+      try? handle.close()
+      throw error
+    }
     guard log.stdout.hasPrefix(before.stdout) else {
       throw GuideError.stopped(
         "Recovery log rotated or changed; cannot tie success to this invocation")

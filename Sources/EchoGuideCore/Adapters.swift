@@ -43,6 +43,7 @@ public struct USBDevice: Codable, Sendable, Equatable {
 public enum USBInspection {
   public static func parse(_ data: Data) throws -> [USBDevice] {
     let plist = try PropertyListSerialization.propertyList(from: data, format: nil)
+    guard plist is [Any] else { throw AdapterError.inspectionUnavailable }
     var found: [USBDevice] = []
     func visit(_ value: Any) {
       if let list = value as? [Any] { list.forEach(visit) }

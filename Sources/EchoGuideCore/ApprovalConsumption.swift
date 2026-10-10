@@ -13,6 +13,7 @@ struct FreshApprovalEvidence: Sendable {
 /// This type is not itself an externally usable write capability.
 struct ConsumedApproval: Sendable {
   let requestID: UUID
+  let sessionID: UUID
   let action: WriteAction
   let device: DeviceIdentity
   let prerequisitesDigest: String
@@ -24,31 +25,52 @@ extension WorkflowEngine {
   func withConsumedApproval<T: Sendable>(requestID: UUID, evidence: FreshApprovalEvidence,
       now: Date = Date(), callback: @Sendable (ConsumedApproval) async throws -> T) async throws -> T {
     try await operation("consume_native_approval") {
-      let consumed = try self.store.transaction { state in
-        let age = now.timeIntervalSince(evidence.checkedAt)
-        guard age.isFinite, age >= 0, age < 30 else {
-          throw GuideError.stopped("Fresh approval evidence expired; inspect again")
-        }
-        guard let request = state.pendingApproval else {
-          throw GuideError.stopped("Approval is missing or already consumed")
-        }
-        let current = try ApprovalPrerequisites.capture(session: state,
-          action: request.action, profile: self.profile)
-        guard current == evidence.prerequisites else {
-          throw GuideError.stopped("Fresh approval evidence differs from current session")
-        }
-        try ApprovalPolicy.validate(request, requestID: requestID, current: current, now: now)
-        let metadata = ConsumedApproval(requestID: request.id, action: request.action,
-          device: request.device, prerequisitesDigest: request.prerequisitesDigest)
-        // The atomic session write commits before the callback is entered.
-        // Unknown outcomes require inspection; approval is never recreated.
-        state.pendingApproval = nil
-        state.phase = .inspectionRequired
-        return metadata
-      }
-      try Self.synchronizeConsumedApproval(at: self.store.root)
+      let consumed = try self.consumeApproval(requestID: requestID, evidence: evidence, now: now)
       return try await callback(consumed)
     }
+  }
+
+  /// The validator runs under the same operation ownership as consumption and
+  /// dispatch. It must only inspect the selected device and immutable inputs.
+  func withFreshConsumedApproval<T: Sendable>(requestID: UUID,
+      validator: @Sendable (SessionRecord) async throws -> FreshApprovalEvidence,
+      callback: @Sendable (ConsumedApproval) async throws -> T) async throws -> T {
+    try await operation("consume_native_approval") {
+      let initial = try self.status()
+      guard initial.pendingApproval?.id == requestID else {
+        throw GuideError.stopped("Approval is missing or already consumed")
+      }
+      let evidence = try await validator(initial)
+      let consumed = try self.consumeApproval(requestID: requestID, evidence: evidence, now: Date())
+      return try await callback(consumed)
+    }
+  }
+
+  private func consumeApproval(requestID: UUID, evidence: FreshApprovalEvidence,
+                               now: Date) throws -> ConsumedApproval {
+    let consumed = try store.transaction { state in
+      let age = now.timeIntervalSince(evidence.checkedAt)
+      guard age.isFinite, age >= 0, age < 30 else {
+        throw GuideError.stopped("Fresh approval evidence expired; inspect again")
+      }
+      guard let request = state.pendingApproval else {
+        throw GuideError.stopped("Approval is missing or already consumed")
+      }
+      let current = try ApprovalPrerequisites.capture(session: state,
+        action: request.action, profile: self.profile)
+      guard current == evidence.prerequisites else {
+        throw GuideError.stopped("Fresh approval evidence differs from current session")
+      }
+      try ApprovalPolicy.validate(request, requestID: requestID, current: current, now: now)
+      let metadata = ConsumedApproval(requestID: request.id, sessionID: request.sessionID,
+        action: request.action, device: request.device,
+        prerequisitesDigest: request.prerequisitesDigest)
+      state.pendingApproval = nil
+      state.phase = .inspectionRequired
+      return metadata
+    }
+    try Self.synchronizeConsumedApproval(at: store.root)
+    return consumed
   }
 
   private static func synchronizeConsumedApproval(at root: URL) throws {

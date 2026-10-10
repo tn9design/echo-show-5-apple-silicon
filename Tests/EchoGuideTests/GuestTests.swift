@@ -134,3 +134,29 @@ extension GuestTests {
     XCTAssertThrowsError(try CompatibilityProfile.bundled().artifact(named: "unknown"))
   }
 }
+
+private struct GuestFailureRunner: CommandRunning {
+  let code: Int32
+  func run(executable: String, arguments: [String]) async throws -> CommandResult {
+    XCTAssertTrue(arguments.last!.contains("exit 41"))
+    XCTAssertTrue(arguments.last!.contains("exit 42"))
+    XCTAssertTrue(arguments.last!.contains("exit 43"))
+    return CommandResult(stdout: "", stderr: "fixture", exitCode: code)
+  }
+}
+extension GuestTests {
+  func testReadinessFailuresHaveSpecificNextActions() async throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    for name in ["client-ed25519", "known_hosts"] {
+      try Data("fixture".utf8).write(to: folder.appendingPathComponent(name))
+    }
+    for (code, expected) in [(Int32(41), "not ARM64"), (42, "Enable Rosetta"), (43, "not registered"), (255, "SSH connection failed"), (1, "offline mock")] {
+      let guest = try GuestAdapter(runner: GuestFailureRunner(code: code), ownedVMID: UUID(), credentialsDirectory: folder, address: "192.168.64.7")
+      let result = try await guest.readiness()
+      XCTAssertFalse(result.ready)
+      XCTAssertTrue(result.reason.contains(expected), result.reason)
+    }
+  }
+}

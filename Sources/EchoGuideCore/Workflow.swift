@@ -201,30 +201,44 @@ public final class WorkflowEngine: @unchecked Sendable {
     let v = os.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     let supported =
       a == "arm64" && (Int(v.split(separator: ".").first ?? "0") ?? 0) >= profile.minimumWritingOS
+    let parsedDevices = usb.exitCode == 0 ? try? USBInspection.parse(Data(usb.stdout.utf8)) : nil
+    let usbAvailable = parsedDevices != nil
+    let connectionAction: String
+    if !usbAvailable {
+      connectionAction = "USB inspection is unavailable; device presence is unknown. Recheck Mac USB inspection before assigning the Echo."
+    } else if parsedDevices!.isEmpty {
+      connectionAction = "No USB devices were detected. Connect the Echo with a data-capable cable, leave wall power connected, and recheck."
+    } else {
+      connectionAction = "Prepare the isolated Linux workspace, then assign only the Echo USB accessory."
+    }
     return HostInspection(
       architecture: a, macOS: v, writingBackendSupported: supported,
-      usbInspectionAvailable: usb.exitCode == 0,
-      devices: (try? USBInspection.parse(Data(usb.stdout.utf8))) ?? [],
+      usbInspectionAvailable: usbAvailable,
+      devices: parsedDevices ?? [],
       nextAction: supported
-        ? "Prepare the isolated Linux workspace, then assign only the Echo USB accessory."
+        ? connectionAction
         : "Device-writing backend requires Apple Silicon and macOS 27 or later; other versions are not validated."
     )
   }
+
   public func diagnosticReport() throws -> DiagnosticReport {
     let s = try status()
     return DiagnosticReport(
-      profile: s.profileID, phase: s.phase,
+      profile: profile.id, phase: s.phase,
       operations: s.operations.map {
         let outcome: String
         if $0.completedAt == nil { outcome = "incomplete" }
         else if $0.result == "completed" { outcome = "completed" }
+        else if $0.result == "failed" { outcome = "failed" }
         else if $0.result == "failed; inspection required" { outcome = "failed; inspection required" }
         else if $0.result == "interrupted read abandoned after recovery reinspection; partial files preserved" {
           outcome = "interrupted; partial files preserved"
         } else if $0.result == "creation reconciled by exact ownership marker and VM UUID" {
           outcome = "creation reconciled"
         } else { outcome = "finished; outcome unknown" }
-        return $0.action + ": " + outcome
+        let allowedActions: Set<String> = ["prepare_downloads", "prepare_workspace", "reconcile_workspace", "start_workspace", "stop_workspace", "bootstrap_guest", "validate_guest", "verify_recovery", "backup", "stage_rom", "consume_native_approval", "unlock", "install"]
+        let action = allowedActions.contains($0.action) ? $0.action : "unknown_operation"
+        return action + ": " + outcome
       }, experimental: true,
       note: "Serials, addresses, private paths, command output, credentials and backups omitted.")
   }

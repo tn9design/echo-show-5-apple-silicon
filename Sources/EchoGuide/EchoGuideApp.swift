@@ -282,6 +282,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       Button("Create redacted diagnostic preview") { previewReport() }.disabled(
         busy || engine == nil)
       GroupBox("Export preview") { selectable(report) }
+      Text("The saved file will contain exactly this redacted preview.").font(.caption).foregroundStyle(.secondary)
       Button("Save this report…") { exportReport() }
         .disabled(report == "Create a diagnostic preview before exporting.")
     }
@@ -607,10 +608,12 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   }
 
   private func exportReport() {
+    let preview = report
+    guard preview != "Create a diagnostic preview before exporting." else { return }
     let panel = NSSavePanel()
     panel.nameFieldStringValue = "echoguide-diagnostic.json"
     guard panel.runModal() == .OK, let destination = panel.url else { return }
-    do { try Data(report.utf8).write(to: destination, options: .atomic) } catch {
+    do { try Data(preview.utf8).write(to: destination, options: .atomic) } catch {
       status = "Export stopped: \(error.localizedDescription)"
     }
   }

@@ -9,18 +9,47 @@ public struct PublisherPreparationProgress: Codable, Sendable {
   public let verifiedFiles: Int
 }
 
+private final class PublisherJob: @unchecked Sendable {
+  private let lock = NSLock()
+  private let registered = DispatchSemaphore(value: 0)
+  private var task: Task<Void, Never>?
+  private var failure: String?
+  private var finished = false
+  func attach(_ task: Task<Void, Never>) { lock.withLock { self.task = task } }
+  func begin() { registered.signal() }
+  func awaitRegistration() { registered.wait() }
+  func completed() { lock.withLock { finished = true } }
+  var isFinished: Bool { lock.withLock { finished } }
+  func failed(_ message: String) { lock.withLock { failure = message } }
+  func wait() async throws {
+    let captured = lock.withLock { task }
+    await captured?.value
+    if let failure = lock.withLock({ failure }) { throw GuideError.stopped(failure) }
+  }
+}
 private final class PublisherTasks: @unchecked Sendable {
   static let shared = PublisherTasks()
   private let lock = NSLock()
-  private var tasks: [String: Task<Void, Never>] = [:]
-  private var failures: [String: String] = [:]
-  func reset(_ key: String) { lock.withLock { _ = failures.removeValue(forKey: key) } }
-  func register(_ task: Task<Void, Never>, key: String) { lock.withLock { tasks[key] = task } }
-  func failed(_ key: String, message: String) { lock.withLock { failures[key] = message } }
-  func wait(_ key: String) async throws {
-    let task = lock.withLock { tasks[key] }
-    await task?.value
-    if let failure = lock.withLock({ failures[key] }) { throw GuideError.stopped(failure) }
+  private var jobs: [String: [UUID: PublisherJob]] = [:]
+  private var latest: [String: UUID] = [:]
+  func register(_ job: PublisherJob, key: String, operationID: UUID) {
+    lock.withLock { jobs[key, default: [:]][operationID] = job; latest[key] = operationID }
+  }
+  func wait(_ key: String, operationID: UUID?) async throws {
+    let captured: [PublisherJob] = try lock.withLock {
+      if let operationID {
+        guard let job = jobs[key]?[operationID] else { throw GuideError.stopped("Publisher operation identifier is not owned by this process") }
+        return [job]
+      }
+      let outstanding = Array(jobs[key]?.values ?? Dictionary<UUID, PublisherJob>().values).filter { !$0.isFinished }
+      if !outstanding.isEmpty { return outstanding }
+      return latest[key].flatMap { jobs[key]?[$0] }.map { [$0] } ?? []
+    }
+    var terminalFailure: String?
+    for job in captured {
+      do { try await job.wait() } catch { terminalFailure = error.localizedDescription }
+    }
+    if let terminalFailure { throw GuideError.stopped(terminalFailure) }
   }
 }
 
@@ -33,10 +62,11 @@ extension WorkflowEngine {
     let artifacts = try profile.publisherDownloads()
     let folder = store.root.appendingPathComponent("downloads", isDirectory: true)
     let attrs = try? FileManager.default.attributesOfItem(atPath: folder.path)
-    guard attrs?[.type] as? FileAttributeType != .typeSymbolicLink else {
-      throw PreparationError.unsafeArtifact
+    if let type = attrs?[.type] as? FileAttributeType {
+      guard type == .typeDirectory else { throw PreparationError.unsafeArtifact }
+    } else {
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
     }
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
     let fd = open(store.root.appendingPathComponent("active.lock").path, O_CREAT | O_RDWR, 0o600)
     guard fd >= 0 else { throw GuideError.stopped("Cannot acquire operation lock") }
     guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
@@ -55,9 +85,10 @@ extension WorkflowEngine {
       flock(fd, LOCK_UN); close(fd); throw error
     }
     let key = store.root.standardizedFileURL.path
-    PublisherTasks.shared.reset(key)
+    let job = PublisherJob()
     let task = Task.detached { [self] in
-      defer { flock(fd, LOCK_UN); close(fd) }
+      job.awaitRegistration()
+      defer { flock(fd, LOCK_UN); close(fd); job.completed() }
       var verifiedFiles = 0
       do {
         for artifact in artifacts {
@@ -82,7 +113,7 @@ extension WorkflowEngine {
         }
       } catch {
         let message = error is CancellationError ? "Publisher preparation cancelled" : "Publisher preparation failed; inspect downloaded files before explicitly retrying"
-        PublisherTasks.shared.failed(key, message: message)
+        job.failed(message)
         do {
           try store.transaction { state in
             let previous = state.downloadProgress
@@ -93,19 +124,21 @@ extension WorkflowEngine {
             }
           }
         } catch {
-          PublisherTasks.shared.failed(key, message: "Publisher preparation stopped but terminal state could not be saved; inspect the incomplete operation")
+          job.failed("Publisher preparation stopped but terminal state could not be saved; inspect the incomplete operation")
         }
       }
     }
-    PublisherTasks.shared.register(task, key: key)
+    job.attach(task)
+    PublisherTasks.shared.register(job, key: key, operationID: operation.id)
+    job.begin()
     return operation
   }
-  public func waitForPublisherDownloads() async throws {
-    try await PublisherTasks.shared.wait(store.root.standardizedFileURL.path)
+  public func waitForPublisherDownloads(operationID: UUID? = nil) async throws {
+    try await PublisherTasks.shared.wait(store.root.standardizedFileURL.path, operationID: operationID)
   }
   public func prepareOwnedDownloads() async throws -> OperationRecord {
     let operation = try startPublisherDownloads()
-    try await waitForPublisherDownloads()
+    try await waitForPublisherDownloads(operationID: operation.id)
     guard let observed = try status().operations.first(where: { $0.id == operation.id }), observed.result == "completed" else {
       throw GuideError.stopped("Publisher preparation did not complete")
     }

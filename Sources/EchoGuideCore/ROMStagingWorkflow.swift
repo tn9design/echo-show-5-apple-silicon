@@ -56,7 +56,7 @@ extension WorkflowEngine {
     }
   }
 
-  private static func verifyStagingBackups(_ state: SessionRecord) throws -> Data {
+  static func verifyStagingBackups(_ state: SessionRecord) throws -> Data {
     guard let path = state.backupManifest else {
       throw GuideError.stopped("Verified backup manifest is missing")
     }
