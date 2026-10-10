@@ -133,9 +133,15 @@ public final class SessionStore: @unchecked Sendable {
     let fd = open(root.appendingPathComponent("operation.lock").path, O_CREAT | O_RDWR, 0o600)
     guard fd >= 0 else { throw GuideError.stopped("Cannot open workflow lock") }
     defer { close(fd) }
-    guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
-      throw GuideError.stopped("Another EchoGuide operation is active")
+    // State transactions are short; polling must not make an active backup fail.
+    // The separate active.lock still rejects concurrent operations immediately.
+    var acquired = false
+    for _ in 0..<250 {
+      if flock(fd, LOCK_EX | LOCK_NB) == 0 { acquired = true; break }
+      if errno != EWOULDBLOCK && errno != EAGAIN { break }
+      usleep(1_000)
     }
+    guard acquired else { throw GuideError.stopped("Workflow state is busy; retry status shortly") }
     defer { flock(fd, LOCK_UN) }
     let url = root.appendingPathComponent("session.json")
     var session: SessionRecord
@@ -152,6 +158,9 @@ public final class SessionStore: @unchecked Sendable {
   }
 }
 public final class WorkflowEngine: @unchecked Sendable {
+  private let backgroundLock = NSLock()
+  private var backgroundBackup: Task<Void, Never>?
+  private var backgroundPersistenceFailure: String?
   public static var defaultRoot: URL {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
       "Library/Application Support/EchoGuide")
@@ -395,6 +404,12 @@ extension WorkflowEngine {
     progress: (@Sendable (BackupProgress) -> Void)? = nil
   ) async throws -> [VerifiedPartitionBackup] {
     try await operation("backup") {
+      try await self.performBackup(adb: adb, destination: destination, progress: progress)
+    }
+  }
+  private func performBackup(
+    adb: URL, destination: URL, progress: (@Sendable (BackupProgress) -> Void)? = nil
+  ) async throws -> [VerifiedPartitionBackup] {
       let state = try self.status()
       guard state.phase == .recovery, let device = state.device else {
         throw GuideError.stopped("Compatible recovery has not been verified")
@@ -415,7 +430,6 @@ extension WorkflowEngine {
         $0.phase = .backedUp
       }
       return results
-    }
   }
 }
 
@@ -426,6 +440,76 @@ extension WorkflowEngine {
       throw GuideError.stopped("Select ADB and the recovery device in the native app first")
     }
     try await verifyRecovery(adb: URL(fileURLWithPath: adb), serial: d.serial)
+  }
+  /// Reserve and journal before returning; the detached worker retains cross-process ownership.
+  public func startConfiguredBackup() throws -> OperationRecord {
+    let fd = open(store.root.appendingPathComponent("active.lock").path, O_CREAT | O_RDWR, 0o600)
+    guard fd >= 0 else { throw GuideError.stopped("Cannot acquire operation lock") }
+    guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+      close(fd)
+      throw GuideError.stopped("Another operation is active")
+    }
+    let record = OperationRecord(id: UUID(), action: "backup", startedAt: Date())
+    let configuration: (String, String)
+    do {
+      configuration = try store.transaction { state in
+        guard state.operations.allSatisfy({ $0.completedAt != nil }) else {
+          throw GuideError.stopped("An interrupted operation requires inspection")
+        }
+        guard state.phase == .recovery, state.device != nil else {
+          throw GuideError.stopped("Compatible recovery has not been verified")
+        }
+        guard let adb = state.adbPath, let folder = state.backupDestination else {
+          throw GuideError.stopped("Choose the backup destination and ADB in the native app first")
+        }
+        state.backupProgress = nil
+        state.operations.append(record)
+        return (adb, folder)
+      }
+    } catch {
+      flock(fd, LOCK_UN); close(fd)
+      throw error
+    }
+    backgroundLock.withLock { backgroundPersistenceFailure = nil }
+    let task = Task.detached { [self] in
+      defer { flock(fd, LOCK_UN); close(fd) }
+      do {
+        _ = try await performBackup(
+          adb: URL(fileURLWithPath: configuration.0),
+          destination: URL(fileURLWithPath: configuration.1))
+        try store.transaction { state in
+          if let index = state.operations.firstIndex(where: { $0.id == record.id }) {
+            state.operations[index].completedAt = Date()
+            state.operations[index].result = "completed"
+          }
+        }
+      } catch {
+        do {
+          try store.transaction { state in
+            state.phase = .inspectionRequired
+            if let index = state.operations.firstIndex(where: { $0.id == record.id }) {
+              state.operations[index].completedAt = Date()
+              state.operations[index].result = "failed; inspection required"
+            }
+          }
+        } catch {
+          // Leave the intent incomplete; status requires inspection after ownership ends.
+          backgroundLock.withLock {
+            backgroundPersistenceFailure = "Backup stopped but terminal state could not be saved; inspection is required"
+          }
+        }
+      }
+    }
+    backgroundLock.withLock { backgroundBackup = task }
+    return record
+  }
+  /// Graceful stdio EOF does not kill an in-flight backup. Forced termination leaves an incomplete journal.
+  public func waitForBackgroundOperations() async throws {
+    let task = backgroundLock.withLock { backgroundBackup }
+    await task?.value
+    if let failure = backgroundLock.withLock({ backgroundPersistenceFailure }) {
+      throw GuideError.stopped(failure)
+    }
   }
   public func backupConfigured() async throws -> [VerifiedPartitionBackup] {
     let s = try status()

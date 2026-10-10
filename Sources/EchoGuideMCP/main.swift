@@ -96,7 +96,7 @@ import Foundation
             case "verify_recovery":
               try await activeEngine.verifyConfiguredRecovery()
               data = try encoder.encode(try activeEngine.status())
-            case "backup": data = try encoder.encode(try await activeEngine.backupConfigured())
+            case "backup": data = try encoder.encode(try activeEngine.startConfiguredBackup())
             case "request_unlock":
               data = try encoder.encode(try activeEngine.requestApproval(action: .unlock))
             case "request_install":
@@ -122,6 +122,8 @@ import Foundation
             ])
         }
       }
+      do { try await engine?.waitForBackgroundOperations() }
+      catch { FileHandle.standardError.write(Data("EchoGuide: \(error)\n".utf8)) }
     }
   }
   static var toolDefinitions: [[String: Any]] {
@@ -134,7 +136,7 @@ import Foundation
       ),
       (
         "backup",
-        "Capture verified private recovery backups into the native app-selected destination. Requires prior recovery verification."
+        "Start verified private backups and return the persistent operation ID immediately. Poll status for backupProgress and completion. Uses only the native app-selected destination; requires prior recovery verification."
       ),
       (
         "request_unlock",
