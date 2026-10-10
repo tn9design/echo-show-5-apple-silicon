@@ -1,4 +1,4 @@
-# Echo Show 5 on Apple Silicon
+# Install LineageOS on Echo Show 5 using an Apple Silicon Mac
 
 A working-path guide and starter tools for installing LineageOS on the **first-generation Amazon Echo Show 5 (CHECKERS)** using an Apple Silicon Mac.
 
