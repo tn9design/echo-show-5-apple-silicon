@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// No live transport is provided. A future audited guest adapter must verify
 /// artifact bytes and authenticated guest readiness before returning this evidence.
@@ -29,6 +30,12 @@ struct PoweredWaitRecord: Codable, Sendable {
   let elapsedSeconds: Int
   let complete: Bool
 }
+public struct PoweredWaitStatus: Codable, Sendable {
+  public let requiredSeconds: Int
+  public let elapsedSeconds: Int
+  public let complete: Bool
+  public let guidance: String
+}
 struct UnlockProgress: Sendable {
   let attempts: Int
   let poweredWaitElapsedSeconds: Int
@@ -41,10 +48,18 @@ struct UnlockOutcome: Sendable {
 }
 
 extension WorkflowEngine {
-  func poweredWaitStatus() throws -> PoweredWaitRecord? {
+  public func poweredWaitStatus() throws -> PoweredWaitStatus? {
     let url = store.root.appendingPathComponent("unlock-powered-wait.json")
     guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-    return try JSONDecoder().decode(PoweredWaitRecord.self, from: Data(contentsOf: url))
+    let record = try JSONDecoder().decode(PoweredWaitRecord.self, from: Data(contentsOf: url))
+    guard record.requiredSeconds == 300, (0...300).contains(record.elapsedSeconds),
+      record.complete == (record.elapsedSeconds == 300) else {
+      throw GuideError.stopped("Powered wait evidence is invalid; keep wall power connected and inspect")
+    }
+    return PoweredWaitStatus(requiredSeconds: record.requiredSeconds,
+      elapsedSeconds: record.elapsedSeconds, complete: record.complete,
+      guidance: record.complete ? "Powered wait completed; independently verify recovery"
+        : "Keep wall power connected for at least five minutes; interrupted wait requires inspection")
   }
 
   /// Internal pilot orchestration only. Ownership spans validation, consumption,
@@ -84,6 +99,14 @@ extension WorkflowEngine {
           requiredSeconds: 300, elapsedSeconds: elapsed, complete: elapsed == 300))
         try data.write(to: waitURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: waitURL.path)
+        let file = open(waitURL.path, O_RDONLY | O_NOFOLLOW)
+        guard file >= 0 else { throw GuideError.stopped("Cannot synchronize powered wait intent") }
+        defer { close(file) }
+        guard fsync(file) == 0 else { throw GuideError.stopped("Powered wait intent did not synchronize") }
+        let directory = open(self.store.root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard directory >= 0 else { throw GuideError.stopped("Cannot synchronize powered wait directory") }
+        defer { close(directory) }
+        guard fsync(directory) == 0 else { throw GuideError.stopped("Powered wait directory did not synchronize") }
       }
       try recordWait(0)
       while attempts < 3 {
