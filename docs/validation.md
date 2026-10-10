@@ -7,7 +7,7 @@ Confirmed on one Mac Studio running macOS 27.2 with UTM 5.0.6 Beta, Apple Virtua
 - Exact CHECKERS/LK identity was queried before unlocking.
 - Original-client full payload transfer completed in 4.687 seconds but was rejected on one attempt.
 - A subsequent fresh-entry run with upstream query ordering and an eight-second timeout stopped on its first timeout before download completion was reported. TWRP later appeared physically and was verified through ADB. No second or third attempt ran in that bounded run.
-- Installed TWRP matched the packaged image byte for byte.
+- The image-length prefix of the installed recovery matched packaged TWRP byte for byte; the full recovery partition also contains a tail.
 - Boot, recovery, system, userdata and metadata backups matched device-side hashes. Restore has not been tested.
 - LineageOS installation completed with updater RC=0 and operation status=0. User confirmed Android setup, Wi-Fi connection and home screen.
 

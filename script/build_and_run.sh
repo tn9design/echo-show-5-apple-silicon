@@ -2,8 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 pkill -x EchoGuide >/dev/null 2>&1 || true
-swift build
-binary="$(swift build --show-bin-path)/EchoGuide"
+scratch="${TMPDIR:-/private/tmp}/EchoGuideBuild"
+swift build --scratch-path "$scratch"
+binary="$(swift build --scratch-path "$scratch" --show-bin-path)/EchoGuide"
 bundle="${TMPDIR:-/private/tmp}/EchoGuidePreview/EchoGuide.app"
 mkdir -p "$bundle/Contents/MacOS"
 cp "$binary" "$bundle/Contents/MacOS/EchoGuide"

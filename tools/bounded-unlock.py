@@ -17,7 +17,7 @@ for name, expected in HASHES.items():
     if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
         sys.exit(f'STOP: missing or mismatched required file: {name}')
 if len(sys.argv) != 3 or sys.argv[1] != '--execute':
-    print('Hashes verified. No device commands. Usage: bounded-retries.py --execute SERIAL')
+    print('Hashes verified. No device commands. Usage: bounded-unlock.py --execute SERIAL')
     sys.exit(0)
 serial = sys.argv[2]
 if not serial.isalnum():

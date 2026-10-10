@@ -6,7 +6,7 @@ One device reached TWRP, successfully installed LineageOS 18.1 v0.7, completed s
 
 ## Native preflight prototype
 
-A SwiftUI Mac app is included. Run `bash script/build_and_run.sh` with Xcode Command Line Tools installed. It checks CPU/macOS and USB product names, and streams file SHA-256 verification against a selected folder’s hashes.json. This is read-only preflight, not an installer. The selected manifest must itself come from a trusted source. App distribution/signing and independent UI testing remain pending.
+A SwiftUI Mac app is included. Run `bash script/build_and_run.sh` with Xcode Command Line Tools installed. It checks CPU/macOS and USB product names, and streams file SHA-256 verification against a selected folder’s hashes.json. The app can also download pinned UTM/ROM releases to a chosen folder and verify them before exposing the finished files. Existing mismatched files are preserved and stop preparation. It does not install software or send device-writing commands. The selected manifest must itself come from a trusted source. App distribution/signing and full UI interaction testing remain pending.
 
 ## Start here
 
