@@ -286,7 +286,7 @@ public final class WorkflowEngine: @unchecked Sendable {
 }
 
 extension WorkflowEngine {
-  private func operation<T: Sendable>(_ action: String, _ body: @Sendable () async throws -> T)
+  func operation<T: Sendable>(_ action: String, _ body: @Sendable () async throws -> T)
     async throws -> T
   {
     let fd = open(store.root.appendingPathComponent("active.lock").path, O_CREAT | O_RDWR, 0o600)
