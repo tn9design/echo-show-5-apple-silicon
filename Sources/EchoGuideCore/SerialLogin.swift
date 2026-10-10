@@ -42,16 +42,26 @@ enum SerialLogin {
     try await terminal.write(Data((username + "\n").utf8))
     // A delayed duplicate getty prompt is not evidence of a failed username attempt.
     // Await the password request within the same bounded read; credentials are sent once.
-    let prompt = try await terminal.read(untilAny: [
-      Data("Password: ".utf8), Data("Login incorrect".utf8),
-    ])
+    let prompt: Data
+    do {
+      prompt = try await terminal.read(untilAny: [
+        Data("Password: ".utf8), Data("Login incorrect".utf8),
+      ], timeout: promptTimeout)
+    } catch GuideError.stopped(let message) where message == "Serial response timed out" {
+      throw GuideError.stopped("Serial timed out waiting for the password prompt; no password submitted")
+    }
     guard String(data: prompt, encoding: .utf8)?.hasSuffix("Password: ") == true else {
       throw GuideError.stopped("Serial login did not request the user password")
     }
     try await terminal.write(Data((password + "\n").utf8))
-    let response = try await terminal.read(untilAny: [
-      Data("$ ".utf8), Data("login: ".utf8), Data("Login incorrect".utf8),
-    ])
+    let response: Data
+    do {
+      response = try await terminal.read(untilAny: [
+        Data("$ ".utf8), Data("login: ".utf8), Data("Login incorrect".utf8),
+      ], timeout: promptTimeout)
+    } catch GuideError.stopped(let message) where message == "Serial response timed out" {
+      throw GuideError.stopped("Serial timed out waiting for login completion; password submitted once, no retry")
+    }
     guard let result = String(data: response, encoding: .utf8), result.hasSuffix("$ "),
       !result.contains("Login incorrect"), !result.contains("login: ")
     else {

@@ -133,8 +133,15 @@ extension WorkflowEngine {
   {
     try await terminal.write(Data(GuestBootstrapProtocol.consoleCommand(for: request).utf8))
     let marker = Data(request.endMarker.utf8)
-    let data = try await terminal.read(
-      until: marker, limit: GuestBootstrapProtocol.maximumTranscriptBytes)
+    let data: Data
+    do {
+      data = try await terminal.read(
+        until: marker, limit: GuestBootstrapProtocol.maximumTranscriptBytes)
+    } catch GuideError.stopped(let message) where message == "Serial response timed out" {
+      throw GuideError.stopped(request.clientPublicKey == nil
+        ? "Serial timed out waiting for the guest identity frame; no client key created"
+        : "Serial timed out waiting for key authorization evidence; inspect interrupted key setup")
+    }
     guard let transcript = String(data: data, encoding: .utf8) else {
       throw GuideError.stopped("Guest serial response is not UTF-8")
     }
