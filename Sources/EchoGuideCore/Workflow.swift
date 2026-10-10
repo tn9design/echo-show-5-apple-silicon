@@ -91,6 +91,7 @@ public struct SessionRecord: Codable, Sendable {
   public var pendingApproval: ApprovalRequest?
   public var operations: [OperationRecord] = []
   public var backupManifest: String?
+  public var guest: GuestWorkspaceRecord?
   public var startupConfirmed = false
   public init(profileID: String) { self.profileID = profileID }
 }
@@ -537,6 +538,7 @@ extension WorkflowEngine {
   }
   private func changeOwnedWorkspace(utm: URL, start: Bool) async throws -> OwnedVMInfo {
     try await operation(start ? "start_workspace" : "stop_workspace") {
+      try self.store.transaction { $0.guest?.ready = false }
       let state = try self.status()
       guard let text = state.vmID, let id = UUID(uuidString: text) else {
         throw GuideError.stopped("No registered app-owned workspace")

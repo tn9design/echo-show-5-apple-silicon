@@ -7,8 +7,8 @@
 - Create a fresh VM through the adapter and record its ownership UUID.
 - Validate keyboard/pointer input or the serial installer route, then install the pinned Debian baseline.
 - Enable translation and confirm it survives a guest restart.
-- Connect the owned serial channel to the host-key acquisition code; pin the actual guest key before SSH.
-- Wire account/key setup, verified asset staging and readiness checks into the app.
+- Add native login for the owned serial terminal. A graphical-console login does not authenticate the PTY; the experimental bootstrap currently requires an already logged-in serial shell.
+- Validate the implemented account/key bootstrap, verified asset staging and readiness controls in the app on fresh VMs, including restarts and changed guest addresses.
 
 **Done when:** two fresh workspaces have different credentials and host keys, both pass the offline client test after restart, and no unrelated VM changes. Keep the cloud-image shortcut deferred until this baseline passes.
 

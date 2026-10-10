@@ -1,6 +1,8 @@
 # Source preview implementation results
 
-The integrated app, shared core, CLI and MCP build successfully on the development Mac using local temporary build staging. The expanded run passed 62 XCTest cases with no failures. Tests use temporary fixtures, fake runners and isolated host PTYs; they do not connect to an Echo, create a VM, or prove unlock repeatability.
+The integrated app, shared core, CLI and MCP build successfully on the development Mac using local temporary build staging. The expanded run passed 64 XCTest cases with no failures. Tests use temporary fixtures, fake runners and isolated host PTYs; they do not connect to an Echo, create a VM, or prove unlock repeatability.
+
+Experimental app controls now request bootstrap and offline guest validation. Guest trust is persisted privately, omitted from diagnostic exports, and invalidated for readiness after managed start/stop actions. Validation reacquires serial identity before SSH, supports a changed private guest address, rejects a changed host key, stages only hash-verified validation assets and records the offline result. The serial terminal must already be logged in as `user`; a graphical-console login is insufficient. Native serial login and a novice-ready flow remain unfinished.
 
 The app now selects recovery candidates from structured ADB results. Interrupted read/backup operations require explicit reinspection of the same recovery device and invalidate prior backup/install evidence. Interrupted writes cannot use this path. Owned-VM reconciliation, start and graceful shutdown use exact ownership markers and the recorded UUID; absent or ambiguous results retain creation intent. The new UI and lifecycle scripting have not been tested against a running VM.
 
