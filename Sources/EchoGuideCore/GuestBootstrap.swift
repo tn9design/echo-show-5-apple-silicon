@@ -13,6 +13,15 @@ public struct GuestBootstrapRequest: Sendable {
     self.clientPublicKey = try clientPublicKey.map(GuestBootstrapProtocol.canonicalPublicKey)
   }
 }
+public struct GuestBootstrapFailure: Error, LocalizedError, Sendable, Equatable {
+  public enum Stage: String, Sendable { case identity, home, architecture, hostKey = "host_key", network, address, clientAuthorization = "client_authorization" }
+  public let stage: Stage
+  public let exitCode: Int
+  public var errorDescription: String? {
+    "Guest bootstrap prerequisite failed at \(stage.rawValue) (exit \(exitCode)); no guest output or credentials included"
+  }
+}
+
 public struct GuestBootstrapEvidence: Sendable {
   public let trust: GuestTrustEvidence
   public let address: String
@@ -65,12 +74,12 @@ public enum GuestBootstrapProtocol {
     } else {
       clientInstallation = "client_state=read-only;"
     }
-    // Host public key and network discovery precede key installation; failure produces no frame.
-    // Readline may emit bracketed-paste cleanup plus CR before output. Start a fresh
-    // line so those terminal bytes stay outside the strictly checked evidence frame.
+    // Every prerequisite failure emits a bounded, request-bound completion frame.
+    // Keep the trap inside this subshell; never change the login shell's options.
+    let failureHandler =
+      "result=$?; if [ \"$result\" -ne 0 ]; then printf \"\\nECHOGUIDE-BEGIN %s %s\\nVERSION 1\\nERROR %s %s\\nECHOGUIDE-END %s %s\\n\" \"$owner\" \"$challenge\" \"$stage\" \"$result\" \"$owner\" \"$challenge\"; fi"
     let command =
-      "set -eu; test \"$(id -un)\" = \(request.username); test \"$HOME\" = \(home); test \"$(uname -m)\" = aarch64; host_key=$(cat /etc/ssh/ssh_host_ed25519_key.pub); address=$(ip -4 -o addr show scope global | awk '{split($4,a,\"/\"); split(a[1],b,\".\"); if (b[1]==10 || (b[1]==172 && b[2]>=16 && b[2]<=31) || (b[1]==192 && b[2]==168)) print a[1]}'); test \"$(printf '%s\\n' \"$address\" | wc -l)\" -eq 1; test -n \"$address\"; \(clientInstallation) printf '\\nECHOGUIDE-BEGIN %s %s\\nVERSION 1\\nUSER \(request.username)\\nARCH aarch64\\nIPV4 %s\\nHOST_KEY %s\\nCLIENT_AUTH %s\\nECHOGUIDE-END %s %s\\n' '\(owner)' '\(nonce)' \"$address\" \"$host_key\" \"$client_state\" '\(owner)' '\(nonce)'"
-    // Subshell avoids changing the login shell's error options when bootstrap fails.
+      "owner='\(owner)'; challenge='\(nonce)'; stage=identity; trap '\(failureHandler)' 0; set -eu; test \"$(id -un)\" = \(request.username); stage=home; test \"$HOME\" = \(home); stage=architecture; test \"$(uname -m)\" = aarch64; stage=host_key; host_key=$(cat /etc/ssh/ssh_host_ed25519_key.pub); stage=network; network=$(ip -4 -o addr show scope global); stage=address; address=$(printf '%s\\n' \"$network\" | awk '{split($4,a,\"/\"); split(a[1],b,\".\"); if (b[1]==10 || (b[1]==172 && b[2]>=16 && b[2]<=31) || (b[1]==192 && b[2]==168)) print a[1]}'); test \"$(printf '%s\\n' \"$address\" | wc -l)\" -eq 1; test -n \"$address\"; stage=client_authorization; \(clientInstallation) printf '\\nECHOGUIDE-BEGIN %s %s\\nVERSION 1\\nUSER \(request.username)\\nARCH aarch64\\nIPV4 %s\\nHOST_KEY %s\\nCLIENT_AUTH %s\\nECHOGUIDE-END %s %s\\n' '\(owner)' '\(nonce)' \"$address\" \"$host_key\" \"$client_state\" '\(owner)' '\(nonce)'"
     return "( " + command + " )\n"
   }
   /// Console echo/prompts outside the frame are permitted; all framed fields are exact and ordered.
@@ -87,7 +96,7 @@ public enum GuestBootstrapProtocol {
     let starts = lines.indices.filter { lines[$0].hasPrefix("ECHOGUIDE-BEGIN ") }
     let ends = lines.indices.filter { lines[$0].hasPrefix("ECHOGUIDE-END ") }
     guard starts.count == 1, ends.count == 1, let first = starts.first, let last = ends.first,
-      lines[first] == begin, lines[last] == end, last - first == 7
+      lines[first] == begin, lines[last] == end, last > first
     else {
       throw GuideError.stopped(
         "Bootstrap frame invalid (begin markers: \(starts.count), end markers: \(ends.count), exact begin: \(starts.first.map { lines[$0] == begin } ?? false), exact end: \(ends.first.map { lines[$0] == end } ?? false), frame line distance: \(starts.first.flatMap { first in ends.first.map { $0 - first } } ?? -1)). No transcript or identifiers included")
@@ -98,6 +107,16 @@ public enum GuestBootstrapProtocol {
       throw GuideError.stopped("Unexpected carriage return in bootstrap frame")
     }
     let fields = Array(lines[(first + 1)..<last])
+    if fields.count == 2, fields[0] == "VERSION 1" {
+      let errorFields = fields[1].split(separator: " ", omittingEmptySubsequences: false)
+      guard errorFields.count == 3, errorFields[0] == "ERROR",
+        let stage = GuestBootstrapFailure.Stage(rawValue: String(errorFields[1])),
+        let code = Int(errorFields[2]), (1...255).contains(code),
+        String(code) == errorFields[2]
+      else { throw GuideError.stopped("Invalid bootstrap failure evidence") }
+      throw GuestBootstrapFailure(stage: stage, exitCode: code)
+    }
+    guard fields.count == 6 else { throw GuideError.stopped("Unexpected bootstrap frame length") }
     guard fields[0] == "VERSION 1", fields[1] == "USER \(request.username)", fields[2] == "ARCH aarch64",
       fields[3].hasPrefix("IPV4 "), fields[4].hasPrefix("HOST_KEY "),
       fields[5].hasPrefix("CLIENT_AUTH ")
