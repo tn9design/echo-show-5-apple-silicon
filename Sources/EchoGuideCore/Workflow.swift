@@ -1,4 +1,3 @@
-import CryptoKit
 import Darwin
 import Foundation
 
@@ -214,7 +213,16 @@ public final class WorkflowEngine: @unchecked Sendable {
     return DiagnosticReport(
       profile: s.profileID, phase: s.phase,
       operations: s.operations.map {
-        $0.action + ": " + ($0.completedAt == nil ? "incomplete" : "completed")
+        let outcome: String
+        if $0.completedAt == nil { outcome = "incomplete" }
+        else if $0.result == "completed" { outcome = "completed" }
+        else if $0.result == "failed; inspection required" { outcome = "failed; inspection required" }
+        else if $0.result == "interrupted read abandoned after recovery reinspection; partial files preserved" {
+          outcome = "interrupted; partial files preserved"
+        } else if $0.result == "creation reconciled by exact ownership marker and VM UUID" {
+          outcome = "creation reconciled"
+        } else { outcome = "finished; outcome unknown" }
+        return $0.action + ": " + outcome
       }, experimental: true,
       note: "Serials, addresses, private paths, command output, credentials and backups omitted.")
   }
@@ -256,7 +264,7 @@ public final class WorkflowEngine: @unchecked Sendable {
             == profile.artifacts.first(where: { $0.name.hasPrefix("lineage-") })?.sha256
         else { throw GuideError.stopped("Device-side ROM staging has not been verified") }
       }
-      let digest = Self.digest(s)
+      let digest = try ApprovalPrerequisites.capture(session: s, action: action, profile: profile).digest()
       let req = ApprovalRequest(
         id: UUID(), action: action, device: d, createdAt: Date(), sessionID: s.id,
         prerequisitesDigest: digest)
@@ -270,10 +278,11 @@ public final class WorkflowEngine: @unchecked Sendable {
   // Approval records are intentionally not exposed as CLI or MCP methods.
   public func approve(requestID: UUID) throws {
     try store.transaction { s in
-      guard let req = s.pendingApproval, req.id == requestID, req.sessionID == s.id,
-        req.device == s.device, Date().timeIntervalSince(req.createdAt) < 300,
-        req.prerequisitesDigest == Self.digest(s)
-      else { throw GuideError.stopped("Approval expired or prerequisites changed") }
+      guard let req = s.pendingApproval else {
+        throw GuideError.stopped("Approval request is missing")
+      }
+      let current = try ApprovalPrerequisites.capture(session: s, action: req.action, profile: profile)
+      try ApprovalPolicy.validate(req, requestID: requestID, current: current)
       // Live writing remains unavailable until fresh-host and independent-device pilot gates pass.
       throw GuideError.stopped(
         "Experimental device-writing dispatcher is not released. No device command was sent.")
@@ -295,13 +304,6 @@ public final class WorkflowEngine: @unchecked Sendable {
       s.startupConfirmed = true
       s.phase = .finished
     }
-  }
-  private static func digest(_ s: SessionRecord) -> String {
-    let text = [
-      s.id.uuidString, s.profileID, s.device?.serial ?? "", s.device?.product ?? "",
-      s.device?.lkBuild ?? "", s.phase.rawValue, s.backupManifest ?? "", s.stagedROMHash ?? "",
-    ].joined(separator: "|")
-    return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
   }
 }
 

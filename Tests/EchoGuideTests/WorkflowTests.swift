@@ -45,6 +45,19 @@ final class WorkflowTests: XCTestCase {
     let data = try JSONEncoder().encode(e.diagnosticReport())
     XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("PRIVATE-SERIAL"))
   }
+  func testReportDoesNotTurnFailureOrUnknownOutcomeIntoSuccess() throws {
+    let e = try engine()
+    defer { try? FileManager.default.removeItem(at: e.store.root) }
+    try e.store.transaction { s in
+      s.operations = [
+        OperationRecord(id: UUID(), action: "backup", startedAt: Date(), completedAt: Date(), result: "failed; inspection required"),
+        OperationRecord(id: UUID(), action: "start_workspace", startedAt: Date(), completedAt: Date(), result: "PRIVATE-DIAGNOSTIC")
+      ]
+    }
+    let report = try e.diagnosticReport()
+    XCTAssertEqual(report.operations, ["backup: failed; inspection required", "start_workspace: finished; outcome unknown"])
+    XCTAssertFalse(try String(decoding: JSONEncoder().encode(report), as: UTF8.self).contains("PRIVATE-DIAGNOSTIC"))
+  }
   func testCrossProcessLockRejectsConcurrentTransaction() throws {
     let e = try engine()
     defer { try? FileManager.default.removeItem(at: e.store.root) }

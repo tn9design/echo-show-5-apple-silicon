@@ -549,10 +549,12 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     do {
       let alert = NSAlert()
       alert.alertStyle = .warning
-      alert.messageText = "Review the exact device and action"
-      alert.informativeText =
-        "This experimental operation can erase data or permanently damage the Echo. Approval applies only to the session and prerequisites shown below.\n\n"
-        + (try encoded(request))
+      alert.messageText = request.action == .unlock
+        ? "Review experimental bootloader unlock" : "Review erasure and LineageOS installation"
+      let action = request.action == .unlock
+        ? "Attempt the reviewed bootloader unlock. Permanent device damage is possible. Keep wall power connected during the attempt and for five minutes afterward."
+        : "Erase data, system, and cache, install the pinned LineageOS ROM, then reboot only after verified installation. Stock apps and settings are removed; verified backups remain private on your Mac."
+      alert.informativeText = "Device: \(request.device.product)\nSerial: \(request.device.serial)\nBootloader: \(request.device.lkBuild)\nRecovery: \(request.device.recoveryVersion ?? "not verified")\n\n\(action)\n\nApproval expires five minutes after \(request.createdAt.formatted(date: .omitted, time: .standard)). Changed device or prerequisites invalidate it.\nSession: \(request.sessionID.uuidString)\nEvidence fingerprint: \(request.prerequisitesDigest)\n\nDevice writing is disabled in this source preview; reviewing this request cannot enable it."
       alert.addButton(withTitle: "Cancel")
       alert.addButton(withTitle: "Approve this request")
       if alert.runModal() == .alertSecondButtonReturn {
@@ -610,20 +612,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       var completed: [String] = []
       do {
         let profile = try CompatibilityProfile.bundled()
-        let artifacts = try profile.artifacts.filter {
-          $0.name.hasSuffix(".dmg") || $0.name.hasPrefix("lineage-")
-        }.map { artifact -> DownloadArtifact in
-          guard let address = artifact.publisherURL, let url = URL(string: address),
-            url.scheme == "https"
-          else {
-            throw GuideError.stopped("Publisher URL missing or invalid for \(artifact.name)")
-          }
-          return DownloadArtifact(
-            name: artifact.name, url: url, sha256: artifact.sha256, size: artifact.size)
-        }
-        guard !artifacts.isEmpty else {
-          throw GuideError.stopped("No publisher downloads in the pinned profile")
-        }
+        let artifacts = try profile.publisherDownloads()
         for artifact in artifacts {
           try Task.checkCancellation()
           activeDownload = artifact.name

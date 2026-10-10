@@ -1,5 +1,5 @@
 import XCTest
-@testable import EchoGuide
+@testable import EchoGuideCore
 
 final class DownloadTests: XCTestCase {
     func testTraversalAndNonHTTPSStopBeforeNetwork() async throws {
