@@ -8,8 +8,10 @@ mkdir -p "$output_dir" "$stage_root/EchoGuide-source"
 output_dir=$(cd "$output_dir" && pwd)
 # Explicit source allowlist: never include sessions, backups, guest keys, or images.
 for item in Package.swift README.md LICENSE hashes.json Sources Tests docs skills script tools .github; do
-    if [ -e "$repo_root/$item" ]; then cp -R "$repo_root/$item" "$stage_root/EchoGuide-source/"; fi
+    if [ -e "$repo_root/$item" ]; then COPYFILE_DISABLE=1 cp -R "$repo_root/$item" "$stage_root/EchoGuide-source/"; fi
 done
+# Strip external-drive metadata only from the disposable copy, never the checkout.
+/usr/bin/xattr -cr "$stage_root/EchoGuide-source"
 (cd "$stage_root" && /usr/bin/zip -qr "$stage_root/EchoGuide-source-preview.zip" EchoGuide-source)
 mv "$stage_root/EchoGuide-source-preview.zip" "$output_dir/EchoGuide-source-preview.zip"
 if [ -z "${ECHOGUIDE_SIGNING_IDENTITY:-}" ] || [ -z "${ECHOGUIDE_NOTARY_PROFILE:-}" ]; then
@@ -17,7 +19,7 @@ if [ -z "${ECHOGUIDE_SIGNING_IDENTITY:-}" ] || [ -z "${ECHOGUIDE_NOTARY_PROFILE:
     (cd "$output_dir" && /usr/bin/shasum -a 256 EchoGuide-source-preview.zip > SHA256SUMS)
     exit 0
 fi
-cd "$repo_root"
+cd "$stage_root/EchoGuide-source"
 swift build --disable-sandbox -c release --scratch-path "$stage_root/build"
 bin_dir=$(swift build --disable-sandbox -c release --scratch-path "$stage_root/build" --show-bin-path)
 app="$stage_root/EchoGuide.app"
@@ -43,10 +45,12 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 </dict></plist>
 PLIST
+/usr/bin/xattr -cr "$app"
+entitlements="$stage_root/EchoGuide-source/script/automation.entitlements"
 for executable in EchoGuide echo-guide echo-guide-mcp; do
-    /usr/bin/codesign --force --options runtime --timestamp --sign "$ECHOGUIDE_SIGNING_IDENTITY" "$app/Contents/MacOS/$executable"
+    /usr/bin/codesign --force --options runtime --timestamp --entitlements "$entitlements" --sign "$ECHOGUIDE_SIGNING_IDENTITY" "$app/Contents/MacOS/$executable"
 done
-/usr/bin/codesign --force --options runtime --timestamp --sign "$ECHOGUIDE_SIGNING_IDENTITY" "$app"
+/usr/bin/codesign --force --options runtime --timestamp --entitlements "$entitlements" --sign "$ECHOGUIDE_SIGNING_IDENTITY" "$app"
 /usr/bin/codesign --verify --deep --strict "$app"
 /usr/bin/ditto -c -k --keepParent "$app" "$stage_root/EchoGuide-submission.zip"
 xcrun notarytool submit "$stage_root/EchoGuide-submission.zip" --keychain-profile "$ECHOGUIDE_NOTARY_PROFILE" --wait

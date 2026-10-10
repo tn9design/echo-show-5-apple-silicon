@@ -20,6 +20,8 @@ Offline CLI/MCP smoke checks passed: initialization, tool listing, ping, malform
 
 Source packaging and shell syntax checks passed. A source ZIP includes tools, profile, app/core/interface sources, tests, skill, docs and license; it omits personal backups, VM images and credentials.
 
+The release script now builds from its disposable local source copy as well as using local build output, and strips filesystem metadata from disposable copies only. Hardened-runtime signing applies the Apple Events automation entitlement to the app and both companions, alongside the app's existing usage description ([Apple entitlement documentation](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.automation.apple-events)). Shell syntax, entitlement plist parsing and source-archive inclusion/metadata checks passed. This does not prove signed automation, notarization or clean-account installation; those still require distribution credentials and runtime validation.
+
 See prototype-status.md for remaining live-validation and implementation gates. This does not mark all milestones complete.
 
 Independent reviewers reproduced and then confirmed fixes for stale same-ROM success logs, absent backup manifests, and OpenSSH configuration paths. Revised source archive helper inclusion was independently checked.
