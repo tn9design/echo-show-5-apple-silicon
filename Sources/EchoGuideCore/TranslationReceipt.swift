@@ -80,3 +80,33 @@ struct TranslationReceiptObservation: Sendable, Equatable {
     return Self(state: .terminalPackageStateUnverified, exitStatus: exit)
   }
 }
+
+extension GuestAdapter {
+  /// Fixed, read-only protocol operation. Does not dispatch, reconcile, or retry setup.
+  func inspectTranslationAttempt(_ binding: TranslationAttemptBinding) async throws -> TranslationReceiptObservation {
+    guard binding.vm == ownedVMID, binding.account == username,
+      binding.hash == (try CompatibilityProfile.bundled().artifact(named: "setup-linux-translation.sh").sha256),
+      let timed = runner as? any TimedCommandRunning else {
+      throw GuideError.stopped("Translation inspection requires matching guest bindings and a bounded runner")
+    }
+    let helperHash = try CompatibilityProfile.bundled().artifact(named: "translation-attempt.sh").sha256
+    let root = "/var/lib/echoguide/translation/" + binding.attempt.uuidString
+    let helper = root + "/helper.sh"
+    // Validate every parent and the copied helper before executing even inspect mode.
+    let command = """
+    set -eu; export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C; \
+    for p in /var /var/lib /var/lib/echoguide /var/lib/echoguide/translation \(root); do \
+    test -d "$p" && test ! -L "$p" && test "$(stat -c %u "$p")" = 0 || exit 65; \
+    mode=$(stat -c %a "$p"); test "$((0$mode & 022))" -eq 0 || exit 65; done; \
+    test -f \(helper) && test ! -L \(helper) && test "$(stat -c %u \(helper))" = 0 || exit 65; \
+    mode=$(stat -c %a \(helper)); test "$((0$mode & 022))" -eq 0 || exit 65; \
+    printf '%s  %s\\n' \(helperHash) \(helper) | sha256sum -c - >/dev/null; \
+    exec /bin/bash \(helper) inspect \(binding.attempt.uuidString) \(binding.vm.uuidString) \(binding.session.uuidString) \(binding.hash) \(binding.boot.uuidString.lowercased()) \(username)
+    """
+    let result = try await timed.run(executable: "/usr/bin/ssh", arguments: arguments(command: command), timeoutSeconds: 20)
+    guard result.exitCode == 0 else {
+      throw GuideError.stopped("Translation receipt inspection failed; no retry or reconciliation performed")
+    }
+    return try TranslationReceiptObservation.parse(result.stdout, expected: binding)
+  }
+}
