@@ -4,6 +4,7 @@ public struct GuestConnectionInspection: Codable, Sendable, Equatable {
   public let connected: Bool
   public let category: String
   public let reason: String
+  public var translationPrivilegeToolAvailable: Bool? = nil
   public var networkProbe: GuestNetworkProbeResult? = nil
 }
 
@@ -38,8 +39,8 @@ extension GuestAdapter {
 
   func inspectConnection(networkProbe: any GuestNetworkProbing = GuestNetworkProbe()) async throws -> GuestConnectionInspection {
     let result = try await runner.run(executable: "/usr/bin/ssh", arguments: arguments(command:
-      "set -eu; test \"$(id -un)\" = \(username) || exit 41; test \"$HOME\" = /home/\(username) || exit 42; test ! -L \(workspacePath) || exit 43; test -w /home/\(username) || exit 44; printf 'ECHOGUIDE-CONNECTION-OK\\n'"))
-    guard result.exitCode == 0, result.stdout == "ECHOGUIDE-CONNECTION-OK\n" else {
+      "set -eu; test \"$(id -un)\" = \(username) || exit 41; test \"$HOME\" = /home/\(username) || exit 42; test ! -L \(workspacePath) || exit 43; test -w /home/\(username) || exit 44; printf 'ECHOGUIDE-CONNECTION-OK\\n'; if test -x /usr/bin/sudo; then printf 'ECHOGUIDE-SUDO-YES\\n'; else printf 'ECHOGUIDE-SUDO-NO\\n'; fi"))
+    guard result.exitCode == 0, ["ECHOGUIDE-CONNECTION-OK\nECHOGUIDE-SUDO-YES\n", "ECHOGUIDE-CONNECTION-OK\nECHOGUIDE-SUDO-NO\n"].contains(result.stdout) else {
       var failure = Self.connectionFailure(result)
       if result.exitCode == 255 {
         failure.networkProbe = await networkProbe.probe(address: address)
@@ -51,7 +52,8 @@ extension GuestAdapter {
       return failure
     }
     return GuestConnectionInspection(connected: true, category: "connected",
-      reason: "Pinned SSH connection and account checks passed. Translation and client readiness remain separate.")
+      reason: "Pinned SSH connection and account checks passed. Translation and client readiness remain separate.",
+      translationPrivilegeToolAvailable: result.stdout.hasSuffix("ECHOGUIDE-SUDO-YES\n"))
   }
 }
 

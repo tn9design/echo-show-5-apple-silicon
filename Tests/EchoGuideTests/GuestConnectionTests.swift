@@ -8,7 +8,7 @@ private struct ConnectionRunner: CommandRunning {
     XCTAssertTrue(arguments.contains("StrictHostKeyChecking=yes"))
     XCTAssertTrue(arguments.contains("BatchMode=yes"))
     XCTAssertFalse(arguments.last!.contains("mkdir"))
-    XCTAssertFalse(arguments.last!.contains("sudo"))
+    XCTAssertFalse(arguments.last!.contains("sudo -"))
     return result
   }
 }
@@ -27,11 +27,13 @@ final class GuestConnectionTests: XCTestCase {
     for name in ["client-ed25519", "known_hosts"] {
       try Data("fixture".utf8).write(to: folder.appendingPathComponent(name))
     }
-    for (output, connected) in [("ECHOGUIDE-CONNECTION-OK\n", true), ("fixture-secret", false)] {
+    for (output, connected) in [("ECHOGUIDE-CONNECTION-OK\nECHOGUIDE-SUDO-YES\n", true), ("ECHOGUIDE-CONNECTION-OK\nECHOGUIDE-SUDO-NO\n", true), ("ECHOGUIDE-CONNECTION-OK\n", false), ("fixture-secret", false)] {
       let guest = try GuestAdapter(runner: ConnectionRunner(result: CommandResult(stdout: output)),
         ownedVMID: UUID(), credentialsDirectory: folder, address: "192.168.64.7")
       let result = try await guest.inspectConnection()
       XCTAssertEqual(result.connected, connected)
+      if connected { XCTAssertEqual(result.translationPrivilegeToolAvailable, output.hasSuffix("ECHOGUIDE-SUDO-YES\n")) }
+      else { XCTAssertNil(result.translationPrivilegeToolAvailable) }
       XCTAssertFalse(result.reason.contains("fixture-secret"))
     }
   }

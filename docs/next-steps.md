@@ -4,12 +4,13 @@
 
 ## 1. Make the Linux workspace usable
 
-- The disposable guest account is now confirmed as `echotest`: direct console login succeeded, its home directory is `/home/echotest`, and SSH is active. The earlier assumed `user` account was absent. Validate the corrected native account selection and bootstrap; do not reset the working password.
-- The interactive-shell framing defect is reproduced and fixed; `tools/serial-bootstrap-harness/run-harness.sh` verifies current code against old/fixed Readline behavior without a VM. After direct account authentication succeeds, authenticate through the app’s serial bootstrap. The serial reader preserves framed bytes; an in-progress or missing initial prompt stops without submitting credentials and requires explicit inspection or graceful restart.
-- Use the isolated app session (`--state-root ABSOLUTE_DIRECTORY`) to avoid changing an existing installation session. Two distinct managed VM identities are recorded, but neither has established fresh authenticated guest readiness.
-- Enable translation and confirm it survives a guest restart.
-- Validate the implemented native serial login on the pinned Debian baseline. It makes one attempt using the temporary password entered in the app; failed or unknown prompts stop without retry.
-- Validate the implemented account/key bootstrap, verified asset staging and readiness controls in the app on fresh VMs, including restarts and changed guest addresses.
+- The disposable guest account is confirmed as `echotest`, with home `/home/echotest`. Serial-bound host-key acquisition and generated-key authorization succeeded; pinned SSH was rechecked after a graceful guest restart. Do not reset that working account or recreate its keys.
+- The native app's no-password connection check now also reports `connected`. This proves app-origin SSH/account checks at that time, not translation readiness or the cause of the earlier staging failure.
+- The subsequent translation action returned 127: read-only inspection found sudo missing. Do not repeat it on this guest. Add/validate the no-password sudo prerequisite on disposable fixtures first, and review the baseline account provisioning before further live work.
+- On a properly prepared fresh guest, run the explicit native translation setup once using the private password field. Inspect its outcome; a failed or interrupted privileged setup retains a pending-intent marker and must not be replayed automatically.
+- After successful setup, gracefully restart the owned guest and validate the original pinned client with the offline protocol helper. Recheck translation and client readiness after restart.
+- Validate fresh native serial login/bootstrap, private identity uniqueness and readiness on a second clean workspace. Include changed guest addresses, interruptions and unrelated-VM preservation. Work in isolated app sessions (`--state-root ABSOLUTE_DIRECTORY`).
+- Keep the serial harness regression checks: unknown prompts or incomplete frames stop without submitting credentials. Use the native no-password connection check for app-origin transport failures; terminal/MCP results have a different permission context.
 
 **Done when:** two fresh workspaces have different credentials and host keys, both pass the offline client test after restart, and no unrelated VM changes. Keep the cloud-image shortcut deferred until this baseline passes.
 

@@ -5,10 +5,11 @@ import XCTest
 private actor TranslationCommands: CommandRunning {
   var calls: [[String]] = []
   let failAt: Int?
-  init(failAt: Int? = nil) { self.failAt = failAt }
+  let failureCode: Int32
+  init(failAt: Int? = nil, failureCode: Int32 = 1) { self.failAt = failAt; self.failureCode = failureCode }
   func run(executable: String, arguments: [String]) async throws -> CommandResult {
     calls.append([executable] + arguments)
-    return CommandResult(stdout: "fixture output must not become a status", exitCode: calls.count == failAt ? 1 : 0)
+    return CommandResult(stdout: "fixture output must not become a status", exitCode: calls.count == failAt ? failureCode : 0)
   }
   func recorded() -> [[String]] { calls }
 }
@@ -23,7 +24,7 @@ private actor TranslationInput: SensitiveCommandRunning {
     XCTAssertFalse(arguments.joined().contains("fixture-secret"))
     XCTAssertEqual(input, Data("fixture-secret\n".utf8))
     XCTAssertEqual(timeoutSeconds, 1800)
-    XCTAssertTrue(arguments.last!.hasPrefix("sudo -S -k -p '' /bin/bash -c '"))
+    XCTAssertTrue(arguments.last!.hasPrefix("/usr/bin/sudo -S -k -p '' /bin/bash -c '"))
     XCTAssertTrue(arguments.last!.contains("mktemp /run/echoguide-translation.XXXXXX"))
     XCTAssertTrue(arguments.last!.contains("sha256sum -c -"))
     let syntax = Process()
@@ -73,6 +74,23 @@ final class GuestTranslationTests: XCTestCase {
       XCTAssertEqual(calls.count, stage)
       XCTAssertEqual(submissions, 0)
     }
+  }
+  func testMissingSudoStopsBeforeTransferIntentAndPassword() async throws {
+    let runner = TranslationCommands(failAt: 1, failureCode: 45), input = TranslationInput()
+    let (guest, folder) = try guest(runner)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    do {
+      try await guest.configureTranslation(password: "fixture-secret", sensitiveRunner: input,
+        beforeSetup: { XCTFail("Missing sudo must not create privileged execution intent") })
+      XCTFail("Expected missing-sudo stop")
+    } catch {
+      XCTAssertTrue(String(describing: error).contains("no /usr/bin/sudo"))
+      XCTAssertFalse(String(describing: error).contains("fixture-secret"))
+    }
+    let calls = await runner.recorded(), submissions = await input.count()
+    XCTAssertEqual(calls.count, 1)
+    XCTAssertTrue(calls[0].last!.contains("test -x /usr/bin/sudo || exit 45"))
+    XCTAssertEqual(submissions, 0)
   }
   func testSudoFailureIsNotRetriedOrExposed() async throws {
     let runner = TranslationCommands(), input = TranslationInput(code: 1)

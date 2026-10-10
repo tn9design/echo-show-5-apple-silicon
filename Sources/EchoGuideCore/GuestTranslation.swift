@@ -23,8 +23,11 @@ extension GuestAdapter {
     let hash = try CompatibilityProfile.bundled().artifact(named: "setup-linux-translation.sh").sha256
     let target = workspacePath + "/setup-linux-translation.sh"
     let preparation = try await runner.run(executable: "/usr/bin/ssh", arguments: arguments(command:
-      "set -eu; test \"$(id -un)\" = \(username); test \"$HOME\" = /home/\(username); test ! -L \(workspacePath); mkdir -p \(workspacePath); chmod 700 \(workspacePath); test ! -L \(target)"))
+      "set -eu; test -x /usr/bin/sudo || exit 45; test \"$(id -un)\" = \(username); test \"$HOME\" = /home/\(username); test ! -L \(workspacePath); mkdir -p \(workspacePath); chmod 700 \(workspacePath); test ! -L \(target)"))
     guard preparation.exitCode == 0 else {
+      if preparation.exitCode == 45 {
+        throw GuideError.stopped("The owned Debian guest has no /usr/bin/sudo. Translation setup requires a sudo-enabled account; no password was submitted and no setup ran. Inspect the guest installation before continuing")
+      }
       let failure = Self.connectionFailure(preparation)
       throw GuideError.stopped("Translation staging stopped [\(failure.category)]: \(failure.reason) No setup executed")
     }
@@ -42,7 +45,7 @@ extension GuestAdapter {
     try Task.checkCancellation()
     try beforeSetup()
     let code = try await sensitiveRunner.run(executable: "/usr/bin/ssh", arguments: arguments(command:
-      "sudo -S -k -p '' /bin/bash -c \(quoted)"), input: Data((password + "\n").utf8), timeoutSeconds: 1800)
+      "/usr/bin/sudo -S -k -p '' /bin/bash -c \(quoted)"), input: Data((password + "\n").utf8), timeoutSeconds: 1800)
     guard code == 0 else { throw GuideError.stopped("Guest translation setup failed (exit \(code)); inspect before another explicit attempt") }
   }
 }

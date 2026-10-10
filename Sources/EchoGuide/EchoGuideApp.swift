@@ -82,6 +82,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   @State private var guestConsoleReady = false
   @State private var workspaceRegistered = false
   @State private var guestPassword = ""
+  @State private var translationPrivilegeToolAvailable: Bool? = nil
   @State private var guestUsername = "user"
   @State private var selectedWorkspaceUTM: URL?
   @State private var backupProgress: BackupProgress?
@@ -262,9 +263,14 @@ private enum GuideStep: String, CaseIterable, Identifiable {
           Button("Validate owned guest and original client…") { validateGuest() }
             .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
           Button("Configure Linux translation…") { configureTranslation() }
-            .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
+            .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty || translationPrivilegeToolAvailable != true)
           Button("Check guest connection (no password)…") { inspectGuestConnection() }
             .disabled(busy || engine == nil || !workspaceRegistered)
+          if translationPrivilegeToolAvailable == false {
+            Text("This Debian guest is missing sudo. Translation setup is unavailable; no password is needed for this diagnosis. The guest installation needs review.").foregroundStyle(.orange)
+          } else if translationPrivilegeToolAvailable == nil {
+            Text("Before translation setup, use the no-password connection check to verify the guest has sudo.").font(.caption)
+          }
           Text("After SSH bootstrap, this installs the reviewed translation dependencies in the owned Debian VM. It uses your password once for sudo. After success, gracefully stop and start the workspace, then validate the original client. It does not write to the Echo.")
             .font(.caption).foregroundStyle(.secondary)
           Text("For validation, choose the original publisher fastboot binary. The app uses its bundled, hash-verified protocol helper and checks the binary’s pinned hash before an offline test; it does not contact the Echo.")
@@ -550,10 +556,15 @@ private enum GuideStep: String, CaseIterable, Identifiable {
 
   private func inspectGuestConnection() {
     guard let engine else { return }
+    translationPrivilegeToolAvailable = nil
     busy = true
     operation = "Checking the existing pinned SSH connection without a password…"
     Task {
-      do { status = try encoded(try await engine.inspectOwnedGuestConnection()) }
+      do {
+        let result = try await engine.inspectOwnedGuestConnection()
+        translationPrivilegeToolAvailable = result.translationPrivilegeToolAvailable
+        status = try encoded(result)
+      }
       catch { status = "Guest connection inspection stopped: \(error.localizedDescription)" }
       refresh()
       busy = false

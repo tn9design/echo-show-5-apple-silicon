@@ -89,3 +89,5 @@ A failed MCP tool returns `isError: true`, with matching JSON text and `structur
 Some boundaries still return generic failures. `operation_failed` is not evidence for a more specific cause; local inspection remains necessary.
 
 For a bootstrap or translation transport failure, call `inspect_guest_connection` (CLI: `inspect-guest-connection`). It accepts no address or command and returns sanitized connection evidence. A terminal/MCP connection does not prove the native app has the same network permissions; use the native no-password check to diagnose app-origin failures. No failure authorizes a setup retry or host-key bypass.
+
+The no-password connection result separately reports `translationPrivilegeToolAvailable`. False means sudo is missing: do not ask for another password or run translation setup. True checks only executable presence, not account authorization or translation readiness. Interrupted privileged setup remains inspection-only; a later connection check cannot clear its pending marker or authorize replay.
