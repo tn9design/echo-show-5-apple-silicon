@@ -12,6 +12,18 @@ for item in Package.swift README.md LICENSE hashes.json Sources Tests docs skill
 done
 # Strip external-drive metadata only from the disposable copy, never the checkout.
 /usr/bin/xattr -cr "$stage_root/EchoGuide-source"
+python3 - "$stage_root/EchoGuide-source" <<'PY'
+import pathlib
+import shutil
+import sys
+root = pathlib.Path(sys.argv[1])
+for path in root.rglob('__pycache__'):
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+for path in root.rglob('._*'):
+    if path.is_file() or path.is_symlink():
+        path.unlink()
+PY
 (cd "$stage_root" && /usr/bin/zip -qr "$stage_root/EchoGuide-source-preview.zip" EchoGuide-source)
 mv "$stage_root/EchoGuide-source-preview.zip" "$output_dir/EchoGuide-source-preview.zip"
 if [ -z "${ECHOGUIDE_SIGNING_IDENTITY:-}" ] || [ -z "${ECHOGUIDE_NOTARY_PROFILE:-}" ]; then

@@ -13,5 +13,9 @@ jobs:
         run: python3 script/test-ai-interfaces.py "$(swift build --show-bin-path)"
       - name: Translation configuration checks without a guest
         run: python3 tools/test-linux-translation.py
+      - name: Bounded unlock metadata checks without a device
+        run: python3 tools/test-bounded-unlock.py
       - name: Source packaging
         run: bash script/package-release.sh /tmp/EchoGuide-release
+      - name: Validate source archive
+        run: python3 script/test-source-package.py /tmp/EchoGuide-release/EchoGuide-source-preview.zip
