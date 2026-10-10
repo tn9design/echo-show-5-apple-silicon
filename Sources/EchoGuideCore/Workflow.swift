@@ -101,6 +101,7 @@ public struct SessionRecord: Codable, Sendable {
   public var backupManifest: String?
   public var guest: GuestWorkspaceRecord?
   public var backupProgress: BackupProgress?
+  public var downloadProgress: PublisherPreparationProgress?
   public var postInstallObservations: [PostInstallObservation]?
   public var startupConfirmed = false
   public init(profileID: String) { self.profileID = profileID }

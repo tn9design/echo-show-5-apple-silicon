@@ -34,19 +34,22 @@ private actor InstallFixture: CommandRunning {
   let badHash: Bool
   let failedWipe: Bool
   let failedInstaller: Bool
+  let ambiguousHash: Bool
   init(
     badHash: Bool = false, failedWipe: Bool = false, failedInstaller: Bool = false,
-    staleLog: Bool = false
+    staleLog: Bool = false, ambiguousHash: Bool = false
   ) {
     self.staleLog = staleLog
     self.badHash = badHash
     self.failedWipe = failedWipe
     self.failedInstaller = failedInstaller
+    self.ambiguousHash = ambiguousHash
   }
   func run(executable: String, arguments: [String]) async throws -> CommandResult {
     commands.append(arguments)
     if arguments.contains("sha256sum") {
-      return CommandResult(stdout: String(repeating: badHash ? "0" : "a", count: 64) + "  zip")
+      let line = String(repeating: badHash ? "0" : "a", count: 64) + "  " + ROMStagingAdapter.destination
+      return CommandResult(stdout: ambiguousHash ? line + "\n" + line : line)
     }
     if arguments.contains("wipe") && failedWipe {
       return CommandResult(stdout: "failed", exitCode: 1)
@@ -64,6 +67,18 @@ private actor InstallFixture: CommandRunning {
   func snapshot() -> [[String]] { commands }
 }
 extension PilotTests {
+  func testAmbiguousHashStopsBeforeWipe() async throws {
+    let runner = InstallFixture(ambiguousHash: true)
+    do {
+      try await PilotSequence(runner: runner).install(
+        adb: "/fixture/adb", serial: "TEST", romHash: String(repeating: "a", count: 64),
+        saveLog: URL(fileURLWithPath: "/unused"))
+      XCTFail("Duplicate hash output accepted")
+    } catch {}
+    let commands = await runner.snapshot()
+    XCTAssertFalse(commands.contains { $0.contains("wipe") })
+  }
+
   func testBadROMStopsBeforeWipe() async throws {
     let r = InstallFixture(badHash: true)
     do {

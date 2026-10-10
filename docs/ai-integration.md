@@ -29,6 +29,7 @@ Both client configurations are examples and are **not yet client-integration tes
 | Tool | Behavior |
 |---|---|
 | `inspect` | Inspect Mac readiness |
+| `prepare_downloads` | Start pinned publisher downloads in the private app-owned directory; return operation ID |
 | `status` | Read the private local session |
 | `verify_recovery` | Verify compatible recovery using app-selected ADB and device |
 | `backup` | Start verified backup capture and return its persistent operation ID |
@@ -43,3 +44,8 @@ After `backup` returns, poll `status` for that operation ID and `backupProgress`
 Preview releases do not imply that a pending request executes an unlock or installation. Consult the release's prototype-status document for implemented and experimentally validated operations. The server supports MCP initialization, tool listing/calling, and ping; it does not implement arbitrary filesystem resources or prompts.
 
 The CLI supports `inspect`, `status`, `verify-recovery`, `backup`, `request-unlock`, `request-install`, and `report`. Its optional `--state-root DIRECTORY` is a manual development configuration, not an MCP input. Never share raw `status` output: use `report` and review it first.
+
+
+`prepare_downloads` takes no arguments and uses the bundled profile's publishers, sizes, and SHA-256 values. It saves under the private session's `downloads` directory. Poll `status.downloadProgress` and the matching operation record; transferred bytes are not verified-file proof. A failed or cancelled operation is not a prepared VM. Existing verified files can be reused during an explicit retry; mismatching files are preserved and rejected. Graceful stdio EOF waits for both backups and publisher downloads, while forced termination leaves an incomplete intent requiring inspection.
+
+The CLI command `echo-guide prepare-downloads` waits for the same preparation result. No caller can supply publisher URLs, artifacts, or a destination through MCP. App folder selection remains a separate user-controlled download workflow using the same core verifier.

@@ -72,7 +72,7 @@ import Foundation
             }
             guard
               [
-                "inspect", "status", "verify_recovery", "backup", "request_unlock",
+                "inspect", "prepare_downloads", "status", "verify_recovery", "backup", "request_unlock",
                 "request_install", "report",
               ].contains(name)
             else {
@@ -92,6 +92,7 @@ import Foundation
             encoder.outputFormatting = [.sortedKeys]
             switch name {
             case "inspect": data = try encoder.encode(try await activeEngine.inspect())
+            case "prepare_downloads": data = try encoder.encode(try activeEngine.startPublisherDownloads())
             case "status": data = try encoder.encode(try activeEngine.status())
             case "verify_recovery":
               try await activeEngine.verifyConfiguredRecovery()
@@ -124,11 +125,14 @@ import Foundation
       }
       do { try await engine?.waitForBackgroundOperations() }
       catch { FileHandle.standardError.write(Data("EchoGuide: \(error)\n".utf8)) }
+      do { try await engine?.waitForPublisherDownloads() }
+      catch { FileHandle.standardError.write(Data("EchoGuide: \(error)\n".utf8)) }
     }
   }
   static var toolDefinitions: [[String: Any]] {
-    [
+    let definitions: [(String, String)] = [
       ("inspect", "Inspect host readiness; does not unlock or install."),
+      ("prepare_downloads", "Start pinned publisher downloads in the private app-owned directory. Returns operation ID; poll status.downloadProgress. Downloads only, never Linux workspace readiness."),
       ("status", "Read the private local session and pending operation."),
       (
         "verify_recovery",
@@ -147,14 +151,17 @@ import Foundation
         "Request native human approval for installation. Cannot approve or execute it."
       ),
       ("report", "Return a redacted diagnostic report; no backup images or credentials."),
-    ].map { name, description in
-      [
+    ]
+    return definitions.map { name, description -> [String: Any] in
+      let schema: [String: Any] = ["type": "object", "properties": [:], "additionalProperties": false]
+      let annotations: [String: Any] = [
+        "readOnlyHint": !["request_unlock", "request_install", "backup", "prepare_downloads"].contains(name),
+        "openWorldHint": name == "prepare_downloads"
+      ]
+      return [
         "name": name, "description": description,
-        "inputSchema": ["type": "object", "properties": [:], "additionalProperties": false],
-        "annotations": [
-          "readOnlyHint": name != "request_unlock" && name != "request_install" && name != "backup",
-          "openWorldHint": false,
-        ],
+        "inputSchema": schema,
+        "annotations": annotations,
       ]
     }
   }

@@ -53,7 +53,7 @@ struct PilotSequence: Sendable {
     }
     func verifyZip() async throws {
       let r = try await run(["shell", "sha256sum", zip])
-      guard r.stdout.split(separator: " ").first.map(String.init) == romHash else {
+      guard ROMStagingAdapter.exactRemoteHash(r.stdout, expected: romHash) else {
         throw GuideError.stopped("Device ROM hash mismatch")
       }
     }

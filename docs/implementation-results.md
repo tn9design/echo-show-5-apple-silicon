@@ -1,6 +1,10 @@
 # Source preview implementation results
 
-The integrated app, shared core, CLI and MCP build successfully on the development Mac using local temporary build staging. The expanded run executed 103 XCTest cases: 100 passed, three optional local-ROM fixtures skipped, and no failures. Tests use temporary fixtures, fake runners and isolated host PTYs; they do not connect to an Echo, create a VM, or prove unlock repeatability.
+The integrated app, shared core, CLI and MCP build successfully on the development Mac using local temporary build staging. The expanded run executed 113 XCTest cases: 110 passed, three optional local-ROM fixtures skipped, and no failures. Tests use temporary fixtures, fake runners and isolated host PTYs; they do not connect to an Echo, create a VM, or prove unlock repeatability.
+
+The internal approval boundary durably consumes the exact pending request before entering its callback, rejects stale evidence and concurrent consumers, and leaves unknown outcomes requiring inspection. Six fixtures passed; no production dispatcher calls this boundary yet. Public live approval execution remains disabled. The pilot installer now requires an unambiguous hash for the exact pinned device-side ZIP, including after wipes; duplicate output stops before wiping.
+
+CLI and MCP now expose profile-pinned publisher downloads into the private app-owned download folder. MCP returns a journaled operation ID and status progress; server input closure awaits the transfer. Three operation fixtures passed for HTTP failure, cancellation and unsafe directory rejection. This prepares downloads only, never claims Linux readiness, and has not yet been exercised through an actual MCP client or a fresh publisher download.
 
 Internal ROM staging now checks all five backup images against their manifest before and after staging, validates the durable receipt, and records the pinned ROM hash only if the session evidence remains unchanged. Five workflow fixtures passed, including changed-device and corrupted-backup rejection. This internal operation is not exposed through the app, CLI or MCP; device-writing release gates remain disabled.
 
@@ -20,7 +24,7 @@ Offline CLI/MCP smoke checks passed: initialization, tool listing, ping, malform
 
 Source packaging and shell syntax checks passed. A source ZIP includes tools, profile, app/core/interface sources, tests, skill, docs and license; it omits personal backups, VM images and credentials.
 
-The release script now builds from its disposable local source copy as well as using local build output, and strips filesystem metadata from disposable copies only. Hardened-runtime signing applies the Apple Events automation entitlement to the app and both companions, alongside the app's existing usage description ([Apple entitlement documentation](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.automation.apple-events)). Shell syntax, entitlement plist parsing and source-archive inclusion/metadata checks passed. This does not prove signed automation, notarization or clean-account installation; those still require distribution credentials and runtime validation.
+The release script now builds from its disposable local source copy as well as using local build output, and strips filesystem metadata from disposable copies only. Hardened-runtime signing applies the Apple Events automation entitlement to the app and both companions, alongside the app's existing usage description ([Apple entitlement documentation](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.automation.apple-events)). Shell syntax, entitlement plist parsing and source-archive inclusion/metadata checks passed. A production build from the extracted source archive completed successfully after allowing Xcode debug-symbol generation outside the restricted runner. This does not prove signed automation, notarization or clean-account installation; those still require distribution credentials and runtime validation.
 
 See prototype-status.md for remaining live-validation and implementation gates. This does not mark all milestones complete.
 
