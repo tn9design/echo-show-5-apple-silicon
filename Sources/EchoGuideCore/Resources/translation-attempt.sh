@@ -85,14 +85,28 @@ if [ "$mode" = terminal ]; then
   mv -- "$root/terminal.tmp" "$root/terminal"
   exit 0
 fi
-# Facts only: host must require complete frames and exact matching bindings.
-# No package-clean claim, reconciliation, service control, or file mutation.
-regular "$root/started" && regular "$root/terminal" || { printf 'ECHOGUIDE-INSPECTION-v1\ncategory=unknown\nEND\n'; exit 0; }
-started=$(cat "$root/started"); terminal=$(cat "$root/terminal")
-[[ "$started" =~ ^invocation=[0-9a-f]{32}$ ]] || exit 65
-[[ "$terminal" =~ ^invocation=[0-9a-f]{32}$'\n'result=[a-z-]{1,40}$'\n'code=[a-z]{1,16}$'\n'status=[A-Za-z0-9]{1,24}$ ]] || exit 65
-[ "${terminal%%$'\n'*}" = "$started" ] || exit 65
-properties=$(systemctl show "$unit" --property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,InvocationID,ControlGroup)
+# BEGIN PURE RUNNING FRAME
+emit_running() {
+  local started=$1 properties=$2 populated=$3 invocation live active group loaded
+  [[ "$started" =~ ^invocation=[0-9a-f]{32}$ ]] || return 1
+  [ "${#properties}" -le 4096 ] || return 1
+  invocation=${started#invocation=}
+  live=$(printf '%s\n' "$properties" | sed -n 's/^InvocationID=//p')
+  active=$(printf '%s\n' "$properties" | sed -n 's/^ActiveState=//p')
+  group=$(printf '%s\n' "$properties" | sed -n 's/^ControlGroup=//p')
+  loaded=$(printf '%s\n' "$properties" | sed -n 's/^LoadState=//p')
+  [ "$live" = "$invocation" ] && [ "$loaded" = loaded ] && [ "$group" = /system.slice/"$unit" ] && [ "$populated" = 1 ] || return 1
+  case "$active" in active|activating) ;; *) return 1;; esac
+  printf 'ECHOGUIDE-INSPECTION-v1\n%s\nreceiptState=running\n%s\n%s\ncgroupPopulated=1\ncategory=unknown\npackageState=unverified\nEND\n' "$binding" "$started" "$properties"
+}
+# END PURE RUNNING FRAME
+# Facts only: no package-clean claim, reconciliation, service control or mutation.
+unknown() { printf 'ECHOGUIDE-INSPECTION-v1\ncategory=unknown\nEND\n'; }
+regular "$root/started" || { unknown; exit 0; }
+started=$(cat "$root/started")
+[[ "$started" =~ ^invocation=[0-9a-f]{32}$ ]] || { unknown; exit 0; }
+properties=$(systemctl show "$unit" --property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,InvocationID,ControlGroup) || { unknown; exit 0; }
+[ "${#properties}" -le 4096 ] || { unknown; exit 0; }
 cgroup=$(printf '%s\n' "$properties" | sed -n 's/^ControlGroup=//p')
 populated=unknown
 if [ "$cgroup" = /system.slice/"$unit" ]; then
@@ -102,4 +116,12 @@ if [ "$cgroup" = /system.slice/"$unit" ]; then
     case "$value" in 0|1) populated=$value;; esac
   fi
 fi
+if [ ! -e "$root/terminal" ] && [ ! -L "$root/terminal" ]; then
+  emit_running "$started" "$properties" "$populated" || unknown
+  exit 0
+fi
+regular "$root/terminal" || { unknown; exit 0; }
+terminal=$(cat "$root/terminal")
+[[ "$terminal" =~ ^invocation=[0-9a-f]{32}$'\n'result=[a-z-]{1,40}$'\n'code=[a-z]{1,16}$'\n'status=[A-Za-z0-9]{1,24}$ ]] || { unknown; exit 0; }
+[ "${terminal%%$'\n'*}" = "$started" ] || { unknown; exit 0; }
 printf 'ECHOGUIDE-INSPECTION-v1\n%s\n%s\n%s\n%s\ncgroupPopulated=%s\ncategory=unknown\npackageState=unverified\nEND\n' "$binding" "$started" "$terminal" "$properties" "$populated"

@@ -34,10 +34,15 @@ extension WorkflowEngine {
     catch let error as CocoaError where error.code == .fileReadNoSuchFile { attributes = nil }
     catch { throw GuideError.stopped("Translation intent could not be inspected") }
     let pending = attributes != nil
+    let intentSnapshot: Data?
     if let attributes {
       guard attributes[.type] as? FileAttributeType == .typeRegular,
-        let size = attributes[.size] as? NSNumber, size.intValue <= 4096,
-        let record = try? JSONDecoder().decode([String: String].self, from: Data(contentsOf: intent)),
+        let size = attributes[.size] as? NSNumber, size.intValue <= 4096 else {
+        throw GuideError.stopped("Translation intent is invalid or belongs to another workspace")
+      }
+      let bytes = try Data(contentsOf: intent)
+      intentSnapshot = bytes
+      guard let record = try? JSONDecoder().decode([String: String].self, from: bytes),
         record["vmID"] == saved.vmID.uuidString, record["action"] == "configure_guest_translation" else {
         throw GuideError.stopped("Translation intent is invalid or belongs to another workspace")
       }
@@ -50,12 +55,15 @@ extension WorkflowEngine {
       } else if record["scriptSHA256"] != nil {
         throw GuideError.stopped("Translation intent has incomplete attempt bindings")
       }
+    } else {
+      intentSnapshot = nil
     }
     guard pending || !incomplete.isEmpty else {
       throw GuideError.stopped("No interrupted translation evidence to inspect")
     }
-    let specification = try JSONDecoder().decode(OwnedVMSpecification.self,
-      from: Data(contentsOf: store.root.appendingPathComponent("workspace-intent.json")))
+    let workspaceIntent = store.root.appendingPathComponent("workspace-intent.json")
+    let workspaceSnapshot = try Data(contentsOf: workspaceIntent)
+    let specification = try JSONDecoder().decode(OwnedVMSpecification.self, from: workspaceSnapshot)
     let adapter = UTMAdapter(runner: runner, application: utm)
     let channel = try await adapter.serialChannel(specification: specification, vmID: saved.vmID)
     let guest = try GuestAdapter(runner: runner, ownedVMID: saved.vmID,
@@ -66,7 +74,14 @@ extension WorkflowEngine {
       throw GuideError.stopped("Owned workspace changed during inspection")
     }
     let current = try status()
+    let currentIntent: Data?
+    do { currentIntent = try Data(contentsOf: intent) }
+    catch let error as CocoaError where error.code == .fileReadNoSuchFile { currentIntent = nil }
+    catch { throw GuideError.stopped("Translation intent could not be rechecked") }
     guard current.id == state.id, current.vmID == state.vmID,
+      current.operations.filter({ $0.completedAt == nil }).map(\.id) == incomplete.map(\.id),
+      currentIntent == intentSnapshot,
+      try Data(contentsOf: workspaceIntent) == workspaceSnapshot,
       current.guestUsername == state.guestUsername,
       current.guest?.hostKeyFingerprint == saved.hostKeyFingerprint,
       current.guest?.address == saved.address else {

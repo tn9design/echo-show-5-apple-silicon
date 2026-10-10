@@ -5,6 +5,7 @@ import XCTest
 private actor TranslationInspectionRunner: BinaryCommandRunning {
   let id: UUID
   var calls = 0
+  var mutation: (@Sendable () throws -> Void)?
   init(id: UUID) { self.id = id }
   func run(executable: String, arguments: [String]) async throws -> CommandResult {
     calls += 1
@@ -15,6 +16,7 @@ private actor TranslationInspectionRunner: BinaryCommandRunning {
     XCTAssertFalse(arguments.last!.contains("sudo -"))
     XCTAssertFalse(arguments.last!.contains("mkdir"))
     XCTAssertFalse(arguments.last!.contains("systemctl"))
+    try mutation?()
     return .init(stdout: "ECHOGUIDE-CONNECTION-OK\nECHOGUIDE-SUDO-NO\n")
   }
   func runToFile(executable: String, arguments: [String], destination: URL) async throws -> CommandResult {
@@ -22,6 +24,7 @@ private actor TranslationInspectionRunner: BinaryCommandRunning {
     throw GuideError.stopped("Unexpected transfer")
   }
   func count() -> Int { calls }
+  func mutateOnConnection(_ body: @escaping @Sendable () throws -> Void) { mutation = body }
 }
 
 final class TranslationInspectionTests: XCTestCase {
@@ -118,5 +121,18 @@ final class TranslationInspectionTests: XCTestCase {
     XCTAssertEqual(flock(fd, LOCK_EX | LOCK_NB), 0)
     do { _ = try await engine.inspectInterruptedTranslation(utm: URL(fileURLWithPath: "/Applications/UTM.app")); XCTFail() } catch {}
     let calls = await runner.count(); XCTAssertEqual(calls, 0)
+  }
+  func testIntentChangeDuringConnectionInvalidatesObservation() async throws {
+    let (engine, runner) = try fixture(action: "configure_guest_translation")
+    defer { try? FileManager.default.removeItem(at: engine.store.root) }
+    let marker = engine.store.root.appendingPathComponent("translation-setup-pending.json")
+    await runner.mutateOnConnection { try Data("changed".utf8).write(to: marker) }
+    do {
+      _ = try await engine.inspectInterruptedTranslation(utm: URL(fileURLWithPath: "/Applications/UTM.app"))
+      XCTFail("Changed intent must invalidate inspection")
+    } catch {}
+    XCTAssertNil(try engine.status().operations.last?.completedAt)
+    XCTAssertEqual(try Data(contentsOf: marker), Data("changed".utf8))
+    XCTAssertEqual(try engine.status().guest?.ready, false)
   }
 }

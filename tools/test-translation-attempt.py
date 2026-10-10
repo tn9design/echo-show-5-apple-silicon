@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline validation/render checks only; never dispatch or inspect a guest."""
 from pathlib import Path
+import os
 import subprocess
 import unittest
 
@@ -33,6 +34,38 @@ class TranslationAttemptTests(unittest.TestCase):
             self.assertEqual(result.returncode, 64)
             self.assertEqual(result.stdout, '')
         self.assertEqual(self.invoke('arbitrary').returncode, 64)
+
+    def running_frame(self, properties, populated='1', started='invocation=' + 'b' * 32):
+        # Execute the production pure decision/emission function, without sourcing
+        # privileged script initialization or reading real Linux paths.
+        source = SCRIPT.read_text()
+        function = source.split('# BEGIN PURE RUNNING FRAME\n', 1)[1].split('# END PURE RUNNING FRAME', 1)[0]
+        env = os.environ.copy()
+        env.update(TEST_PROPERTIES=properties, TEST_POPULATED=populated, TEST_STARTED=started,
+                   TEST_UNIT=f'echoguide-translation-{UUID}.service', TEST_BINDING='version=1')
+        program = function + '\nunit=$TEST_UNIT; binding=$TEST_BINDING; emit_running "$TEST_STARTED" "$TEST_PROPERTIES" "$TEST_POPULATED"\n'
+        return subprocess.run(['/bin/bash', '-c', program], env=env, capture_output=True, text=True)
+
+    def test_real_running_emitter(self):
+        properties = f"LoadState=loaded\nActiveState=active\nSubState=running\nResult=success\nExecMainCode=0\nExecMainStatus=0\nInvocationID={'b' * 32}\nControlGroup=/system.slice/echoguide-translation-{UUID}.service"
+        result = self.running_frame(properties)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('receiptState=running\n', result.stdout)
+        self.assertEqual(result.stdout.count('invocation='), 1)
+        self.assertIn('cgroupPopulated=1\n', result.stdout)
+        self.assertTrue(result.stdout.endswith('END\n'))
+        for active in ['inactive', 'failed', 'deactivating']:
+            rejected = self.running_frame(properties.replace('ActiveState=active', 'ActiveState=' + active))
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertEqual(rejected.stdout, '')
+        for changed in [properties.replace('LoadState=loaded', 'LoadState=not-found'),
+                        properties.replace('InvocationID=' + 'b' * 32, 'InvocationID=' + 'c' * 32),
+                        properties.replace('ControlGroup=/system.slice/', 'ControlGroup=/wrong/'),
+                        properties + '\nInvocationID=' + 'b' * 32]:
+            self.assertNotEqual(self.running_frame(changed).returncode, 0)
+        for populated in ['0', 'unknown', '1\n0']:
+            self.assertNotEqual(self.running_frame(properties, populated).returncode, 0)
+        self.assertNotEqual(self.running_frame(properties, started='bad').returncode, 0)
 
     def test_dispatch_order_and_inspection_no_mutators(self):
         source = SCRIPT.read_text()
