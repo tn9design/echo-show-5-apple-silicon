@@ -13,19 +13,25 @@ HASHES = {
     'fastbrick-20240709.img': 'c57acac911b8dc9c7f5fec2df25ba04ba8b70a26da14313c8a0d242e984d6091',
 }
 for name, expected in HASHES.items():
-    assert hashlib.sha256((BASE / name).read_bytes()).hexdigest() == expected, name
+    path = BASE / name
+    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+        sys.exit(f'STOP: missing or mismatched required file: {name}')
 if len(sys.argv) != 3 or sys.argv[1] != '--execute':
     print('Hashes verified. No device commands. Usage: bounded-retries.py --execute SERIAL')
     sys.exit(0)
 serial = sys.argv[2]
-assert serial.isalnum()
+if not serial.isalnum():
+    sys.exit('STOP: invalid serial')
 client = [str(BASE / 'fastboot'), '-s', serial]
 for key, expected in [('product', 'CHECKERS'), ('unlock_status', 'false'),
                       ('lk_build_desc', '44072a3-20240709_170103')]:
     result = subprocess.run(client + ['getvar', key], capture_output=True, text=True, timeout=10)
     output = result.stdout + result.stderr
     print(output, flush=True)
-    assert result.returncode == 0 and f'{key}: {expected}' in output
+    values = [line.split(':', 1)[1].strip() for line in output.splitlines()
+              if line.startswith(key + ':')]
+    if result.returncode != 0 or values != [expected]:
+        sys.exit(f'STOP: unexpected device identity for {key}')
 
 records = []
 log = BASE / f'bounded-retries-{time.time_ns()}.json'

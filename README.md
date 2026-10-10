@@ -4,6 +4,10 @@ A working-path guide and starter tools for installing LineageOS on the **first-g
 
 One device reached TWRP, successfully installed LineageOS 18.1 v0.7, completed setup and connected to Wi-Fi. This is experimental: repeatability and full hardware functionality remain untested.
 
+## Native preflight prototype
+
+A SwiftUI Mac app is included. Run `bash script/build_and_run.sh` with Xcode Command Line Tools installed. It checks CPU/macOS and USB product names, and streams file SHA-256 verification against a selected folder’s hashes.json. This is read-only preflight, not an installer. The selected manifest must itself come from a trusted source. App distribution/signing and independent UI testing remain pending.
+
 ## Start here
 
 - [Installation walkthrough](docs/install-guide.md): what to connect, click and verify.
