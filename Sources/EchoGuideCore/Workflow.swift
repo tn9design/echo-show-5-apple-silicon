@@ -102,6 +102,7 @@ public struct SessionRecord: Codable, Sendable {
   public var pendingApproval: ApprovalRequest?
   public var operations: [OperationRecord] = []
   public var backupManifest: String?
+  public var guestUsername: String?
   public var guest: GuestWorkspaceRecord?
   public var backupProgress: BackupProgress?
   public var downloadProgress: PublisherPreparationProgress?

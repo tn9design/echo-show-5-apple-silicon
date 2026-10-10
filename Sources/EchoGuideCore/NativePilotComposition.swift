@@ -76,7 +76,7 @@ enum NativePilotComposition {
       }
       let guest = try GuestAdapter(runner: engine.runner, ownedVMID: saved.vmID,
         credentialsDirectory: engine.store.root.appendingPathComponent("guest-" + saved.vmID.uuidString),
-        address: saved.address)
+        address: saved.address, username: state.guestUsername ?? "user")
       transport = GuestUnlockTransport(guest: guest, payload: payload)
       let prover = NativePilotEnvironmentProver(engine: engine, utm: utm)
       environment = { try await prover.prove(session: $0) }

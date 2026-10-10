@@ -33,10 +33,12 @@ public struct GuestAdapter: Sendable {
   public let runner: any CommandRunning
   public let ownedVMID: UUID
   public let credentialsDirectory: URL
+  public let username: String
+  public var workspacePath: String { "/home/" + username + "/echoguide" }
   public let address: String
   private let clientName = "client-ed25519"
   public init(
-    runner: any CommandRunning, ownedVMID: UUID, credentialsDirectory: URL, address: String
+    runner: any CommandRunning, ownedVMID: UUID, credentialsDirectory: URL, address: String, username: String = "user"
   ) throws {
     guard credentialsDirectory.isFileURL, credentialsDirectory.path.hasPrefix("/"),
       !credentialsDirectory.path.contains("\n"), !credentialsDirectory.path.contains("\r"),
@@ -44,6 +46,7 @@ public struct GuestAdapter: Sendable {
     else {
       throw GuideError.stopped("Expected app-owned credential directory and private guest IPv4")
     }
+    self.username = try GuestUsername.validated(username)
     self.runner = runner
     self.ownedVMID = ownedVMID
     self.credentialsDirectory = credentialsDirectory
@@ -142,7 +145,7 @@ public struct GuestAdapter: Sendable {
       "-o", "HostKeyAlias=echoguide-" + ownedVMID.uuidString, "-o", "ConnectTimeout=10", "-o",
       "ConnectionAttempts=1", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=2", "-o",
       "ClearAllForwardings=yes", "-o", "ForwardAgent=no", "-o", "ProxyCommand=none",
-      "user@" + address, command,
+      username + "@" + address, command,
     ]
   }
   /// Uploads only hash-verified public validation artifacts; arbitrary files cannot be staged.
@@ -164,7 +167,7 @@ public struct GuestAdapter: Sendable {
       executable: "/usr/bin/ssh",
       arguments: try arguments(
         command:
-          "set -eu; test ! -L /home/user/echoguide; mkdir -p /home/user/echoguide; chmod 700 /home/user/echoguide"
+          "set -eu; test ! -L \(workspacePath); mkdir -p \(workspacePath); chmod 700 \(workspacePath)"
       ))
     guard setup.exitCode == 0 else {
       throw GuideError.stopped("Guest validation directory could not be prepared")
@@ -180,7 +183,7 @@ public struct GuestAdapter: Sendable {
       let transfer = try await runner.run(
         executable: "/usr/bin/scp",
         arguments: ["-B"] + options + [
-          source.path, "user@" + address + ":/home/user/echoguide/" + name,
+          source.path, username + "@" + address + ":\(workspacePath)/" + name,
         ])
       guard transfer.exitCode == 0 else {
         throw GuideError.stopped("Guest validation artifact transfer failed")
@@ -190,7 +193,7 @@ public struct GuestAdapter: Sendable {
       executable: "/usr/bin/ssh",
       arguments: try arguments(
         command:
-          "chmod 700 /home/user/echoguide/fastboot; chmod 600 /home/user/echoguide/compare-mock.py /home/user/echoguide/mock.img"
+          "chmod 700 \(workspacePath)/fastboot; chmod 600 \(workspacePath)/compare-mock.py \(workspacePath)/mock.img"
       ))
     guard finish.exitCode == 0 else {
       throw GuideError.stopped("Guest validation artifact permissions failed")
@@ -232,7 +235,7 @@ public struct GuestAdapter: Sendable {
     let helperHash = try profile.artifact(named: "compare-mock.py").sha256
     // Only validated hexadecimal profile hashes enter this fixed command.
     let script =
-      "set -eu; test \"$(uname -m)\" = aarch64 || exit 41; test -x /media/rosetta/rosetta || exit 42; grep -q '^enabled' /proc/sys/fs/binfmt_misc/rosetta || exit 43; cd /home/user/echoguide; printf '%s  %s\\n' \(clientHash) fastboot | sha256sum -c - >/dev/null; printf '%s  %s\\n' \(helperHash) compare-mock.py | sha256sum -c - >/dev/null; printf '%s  %s\\n' ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7 mock.img | sha256sum -c - >/dev/null; ./fastboot --version; python3 compare-mock.py --fastboot ./fastboot --image mock.img"
+      "set -eu; test \"$(uname -m)\" = aarch64 || exit 41; test -x /media/rosetta/rosetta || exit 42; grep -q '^enabled' /proc/sys/fs/binfmt_misc/rosetta || exit 43; cd \(workspacePath); printf '%s  %s\\n' \(clientHash) fastboot | sha256sum -c - >/dev/null; printf '%s  %s\\n' \(helperHash) compare-mock.py | sha256sum -c - >/dev/null; printf '%s  %s\\n' ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7 mock.img | sha256sum -c - >/dev/null; ./fastboot --version; python3 compare-mock.py --fastboot ./fastboot --image mock.img"
     let result = try await runner.run(
       executable: "/usr/bin/ssh", arguments: try arguments(command: script))
     guard result.exitCode == 0 else {

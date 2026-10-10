@@ -9,8 +9,9 @@ enum SerialLogin {
       throw GuideError.stopped("Enter a nonempty Linux password without control characters")
     }
   }
-  static func authenticate(_ terminal: SerialTransport, password: String, promptTimeout: TimeInterval = 20) async throws {
+  static func authenticate(_ terminal: SerialTransport, password: String, username: String = "user", promptTimeout: TimeInterval = 20) async throws {
     try validatePassword(password)
+    let username = try GuestUsername.validated(username)
     // Observe before sending anything: an interrupted invocation may still be at
     // Password, where even a wake newline would submit an unintended credential.
     let first: Data
@@ -38,7 +39,7 @@ enum SerialLogin {
     guard text.hasSuffix("login: ") else {
       throw GuideError.stopped("Ambiguous serial login prompt")
     }
-    try await terminal.write(Data("user\n".utf8))
+    try await terminal.write(Data((username + "\n").utf8))
     // A delayed duplicate getty prompt is not evidence of a failed username attempt.
     // Await the password request within the same bounded read; credentials are sent once.
     let prompt = try await terminal.read(untilAny: [

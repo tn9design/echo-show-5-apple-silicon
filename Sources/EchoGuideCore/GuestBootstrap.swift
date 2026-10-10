@@ -1,11 +1,13 @@
 import Foundation
 
 public struct GuestBootstrapRequest: Sendable {
+  public let username: String
   public let ownedVMID: UUID
   public let nonce: UUID
   public let clientPublicKey: String?
   public var endMarker: String { "ECHOGUIDE-END \(ownedVMID.uuidString) \(nonce.uuidString)" }
-  public init(ownedVMID: UUID, nonce: UUID = UUID(), clientPublicKey: String? = nil) throws {
+  public init(ownedVMID: UUID, nonce: UUID = UUID(), clientPublicKey: String? = nil, username: String = "user") throws {
+    self.username = try GuestUsername.validated(username)
     self.ownedVMID = ownedVMID
     self.nonce = nonce
     self.clientPublicKey = try clientPublicKey.map(GuestBootstrapProtocol.canonicalPublicKey)
@@ -17,7 +19,7 @@ public struct GuestBootstrapEvidence: Sendable {
   public let clientAuthorized: Bool
 }
 
-/// A console protocol after the human explicitly logs into the owned Debian VM as `user`.
+/// A console protocol after login to the selected account in the owned Debian VM.
 /// These builders do not log in, open a PTY, run a guest command or authorize SSH by themselves.
 public enum GuestBootstrapProtocol {
   public static let maximumTranscriptBytes = 16_384
@@ -53,18 +55,19 @@ public enum GuestBootstrapProtocol {
   }
   /// One fixed shell command. Only UUIDs and a validated public-key blob are interpolated.
   public static func consoleCommand(for request: GuestBootstrapRequest) -> String {
+    let home = "/home/" + request.username
     let owner = request.ownedVMID.uuidString
     let nonce = request.nonce.uuidString
     let clientInstallation: String
     if let key = request.clientPublicKey {
       clientInstallation =
-        "test ! -L /home/user/.ssh; mkdir -p /home/user/.ssh; test ! -L /home/user/.ssh/authorized_keys; touch /home/user/.ssh/authorized_keys; chmod 700 /home/user/.ssh; chmod 600 /home/user/.ssh/authorized_keys; grep -qxF 'restrict \(key)' /home/user/.ssh/authorized_keys || printf '%s\\n' 'restrict \(key)' >> /home/user/.ssh/authorized_keys; client_state=installed;"
+        "test ! -L \(home)/.ssh; mkdir -p \(home)/.ssh; test ! -L \(home)/.ssh/authorized_keys; touch \(home)/.ssh/authorized_keys; chmod 700 \(home)/.ssh; chmod 600 \(home)/.ssh/authorized_keys; grep -qxF 'restrict \(key)' \(home)/.ssh/authorized_keys || printf '%s\\n' 'restrict \(key)' >> \(home)/.ssh/authorized_keys; client_state=installed;"
     } else {
       clientInstallation = "client_state=read-only;"
     }
     // Host public key and network discovery precede key installation; failure produces no frame.
     let command =
-      "set -eu; test \"$(id -un)\" = user; test \"$(uname -m)\" = aarch64; host_key=$(cat /etc/ssh/ssh_host_ed25519_key.pub); address=$(ip -4 -o addr show scope global | awk '{split($4,a,\"/\"); split(a[1],b,\".\"); if (b[1]==10 || (b[1]==172 && b[2]>=16 && b[2]<=31) || (b[1]==192 && b[2]==168)) print a[1]}'); test \"$(printf '%s\\n' \"$address\" | wc -l)\" -eq 1; test -n \"$address\"; \(clientInstallation) printf 'ECHOGUIDE-BEGIN %s %s\\nVERSION 1\\nUSER user\\nARCH aarch64\\nIPV4 %s\\nHOST_KEY %s\\nCLIENT_AUTH %s\\nECHOGUIDE-END %s %s\\n' '\(owner)' '\(nonce)' \"$address\" \"$host_key\" \"$client_state\" '\(owner)' '\(nonce)'"
+      "set -eu; test \"$(id -un)\" = \(request.username); test \"$HOME\" = \(home); test \"$(uname -m)\" = aarch64; host_key=$(cat /etc/ssh/ssh_host_ed25519_key.pub); address=$(ip -4 -o addr show scope global | awk '{split($4,a,\"/\"); split(a[1],b,\".\"); if (b[1]==10 || (b[1]==172 && b[2]>=16 && b[2]<=31) || (b[1]==192 && b[2]==168)) print a[1]}'); test \"$(printf '%s\\n' \"$address\" | wc -l)\" -eq 1; test -n \"$address\"; \(clientInstallation) printf 'ECHOGUIDE-BEGIN %s %s\\nVERSION 1\\nUSER \(request.username)\\nARCH aarch64\\nIPV4 %s\\nHOST_KEY %s\\nCLIENT_AUTH %s\\nECHOGUIDE-END %s %s\\n' '\(owner)' '\(nonce)' \"$address\" \"$host_key\" \"$client_state\" '\(owner)' '\(nonce)'"
     // Subshell avoids changing the login shell's error options when bootstrap fails.
     return "( " + command + " )\n"
   }
@@ -76,9 +79,6 @@ public enum GuestBootstrapProtocol {
       throw GuideError.stopped("Bootstrap transcript exceeded its bound or contained invalid bytes")
     }
     let normalized = transcript.replacingOccurrences(of: "\r\n", with: "\n")
-    guard !normalized.contains("\r") else {
-      throw GuideError.stopped("Unexpected carriage return in bootstrap transcript")
-    }
     let lines = normalized.components(separatedBy: "\n")
     let begin = "ECHOGUIDE-BEGIN \(request.ownedVMID.uuidString) \(request.nonce.uuidString)"
     let end = "ECHOGUIDE-END \(request.ownedVMID.uuidString) \(request.nonce.uuidString)"
@@ -88,10 +88,15 @@ public enum GuestBootstrapProtocol {
       lines[first] == begin, lines[last] == end, last - first == 7
     else {
       throw GuideError.stopped(
-        "Bootstrap frame missing, duplicated, or bound to a different VM/challenge")
+        "Bootstrap frame invalid (begin markers: \(starts.count), end markers: \(ends.count), exact begin: \(starts.first.map { lines[$0] == begin } ?? false), exact end: \(ends.first.map { lines[$0] == end } ?? false), frame line distance: \(starts.first.flatMap { first in ends.first.map { $0 - first } } ?? -1)). No transcript or identifiers included")
+    }
+    // Terminal echo may redraw a line with a bare CR outside the protocol frame.
+    // Framed evidence must remain exact; never strip control bytes from its fields.
+    guard !lines[first...last].contains(where: { $0.contains("\r") }) else {
+      throw GuideError.stopped("Unexpected carriage return in bootstrap frame")
     }
     let fields = Array(lines[(first + 1)..<last])
-    guard fields[0] == "VERSION 1", fields[1] == "USER user", fields[2] == "ARCH aarch64",
+    guard fields[0] == "VERSION 1", fields[1] == "USER \(request.username)", fields[2] == "ARCH aarch64",
       fields[3].hasPrefix("IPV4 "), fields[4].hasPrefix("HOST_KEY "),
       fields[5].hasPrefix("CLIENT_AUTH ")
     else { throw GuideError.stopped("Unexpected or duplicate bootstrap fields") }

@@ -31,3 +31,11 @@ Then add isolated guest provisioning, offline mock tests and recovery backup aut
 - A power warning and post-exploit wait cannot be dismissed as mere UI polish.
 
 This page describes the intended complete experience. A source preview now implements preparation, checked recovery/backup operations and a gated native installer pilot; live validation is incomplete. See [current status](prototype-status.md) and [test evidence](implementation-results.md) before using it. The earlier manual installation establishes one successful path, not universal compatibility.
+
+## Current workspace controls
+
+Select the pinned UTM application once per app session. Workspace preparation, lifecycle, bootstrap, validation and read-only identity checks reuse that local selection; backend ownership and version checks still run for each action. The selection is not saved across app launches. Experimental unlock retains its explicit artifact selection.
+
+During guest bootstrap, enter the actual Linux username, not the full-name label. The recommended account is `user`, but a validated account such as `echotest` is supported. The password stays in memory for the explicit action. An account cannot change after guest credentials or device state have been established.
+
+A stop result now states whether shutdown is still pending or the VM has stopped, with the next action in plain language. A running VM still does not establish guest readiness. Serial bootstrap remains under investigation; do not repeatedly restart or submit credentials after an unknown result.

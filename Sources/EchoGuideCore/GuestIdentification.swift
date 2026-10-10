@@ -35,11 +35,11 @@ struct GuestIdentificationAdapter: Sendable {
   }
   func discover() async throws -> [FastbootCandidate] {
     let hash = try profile.artifact(named: "fastboot").sha256
-    let readiness = try await run("set -eu; test \"$(uname -m)\" = aarch64; test -x /media/rosetta/rosetta; grep -q '^enabled' /proc/sys/fs/binfmt_misc/rosetta; printf '%s  %s\\n' \(hash) /home/user/echoguide/fastboot | sha256sum -c - >/dev/null; /home/user/echoguide/fastboot --version")
+    let readiness = try await run("set -eu; test \"$(uname -m)\" = aarch64; test -x /media/rosetta/rosetta; grep -q '^enabled' /proc/sys/fs/binfmt_misc/rosetta; printf '%s  %s\\n' \(hash) \(guest.workspacePath)/fastboot | sha256sum -c - >/dev/null; \(guest.workspacePath)/fastboot --version")
     guard readiness.exitCode == 0, readiness.stdout.split(separator: "\n").first == "fastboot version 28.0.0" else {
       throw GuideError.stopped("Fresh guest ARM64, translation, or pinned fastboot validation failed")
     }
-    let result = try await run("timeout --kill-after=2s 10s /home/user/echoguide/fastboot devices")
+    let result = try await run("timeout --kill-after=2s 10s \(guest.workspacePath)/fastboot devices")
     guard result.exitCode == 0, result.stderr.isEmpty else { throw GuideError.stopped("Guest fastboot enumeration failed; visibility remains unknown") }
     return try Self.parseCandidates(result.stdout)
   }
@@ -58,7 +58,7 @@ struct GuestIdentificationAdapter: Sendable {
     let candidates = try await discover()
     guard candidates.contains(FastbootCandidate(serial: serial)) else { throw GuideError.stopped("Selected Echo is not assigned to this Linux workspace") }
     for (key, expected) in [("product", profile.product), ("unlock_status", "false"), ("lk_build_desc", profile.lkBuild)] {
-      let result = try await run("timeout --kill-after=2s 10s /home/user/echoguide/fastboot -s \(serial) getvar \(key)")
+      let result = try await run("timeout --kill-after=2s 10s \(guest.workspacePath)/fastboot -s \(serial) getvar \(key)")
       guard result.exitCode == 0, PilotSequence.exactGetvar(result.stdout + result.stderr, key: key, expected: expected) else {
         throw GuideError.stopped("Unsupported or changed Echo identity at " + key)
       }
@@ -86,7 +86,7 @@ extension WorkflowEngine {
       s.phase = .workspace
     } }
     let guest = try GuestAdapter(runner: runner, ownedVMID: saved.vmID,
-      credentialsDirectory: store.root.appendingPathComponent("guest-" + saved.vmID.uuidString), address: saved.address)
+      credentialsDirectory: store.root.appendingPathComponent("guest-" + saved.vmID.uuidString), address: saved.address, username: state.guestUsername ?? "user")
     return GuestIdentificationAdapter(guest: guest, profile: profile, fingerprint: saved.hostKeyFingerprint)
   }
   private func verifyIdentificationOwnership(utm: URL, adapter: GuestIdentificationAdapter, intent: Data) async throws {
@@ -103,7 +103,8 @@ extension WorkflowEngine {
     let state = try status()
     guard state.vmID == adapter.guest.ownedVMID.uuidString, state.guest?.vmID == adapter.guest.ownedVMID,
       state.guest?.ready == true, state.guest?.address == adapter.guest.address,
-      state.guest?.hostKeyFingerprint == adapter.fingerprint else { throw GuideError.stopped("Owned guest session changed during identification") }
+      state.guest?.hostKeyFingerprint == adapter.fingerprint,
+      (state.guestUsername ?? "user") == adapter.guest.username else { throw GuideError.stopped("Owned guest session changed during identification") }
   }
   private func identificationIntent() throws -> Data {
     let url = store.root.appendingPathComponent("workspace-intent.json")
@@ -130,7 +131,8 @@ extension WorkflowEngine {
       try self.store.transaction { s in
         guard s.phase == .workspace, s.device == nil, s.guest?.ready == true, s.vmID == adapter.guest.ownedVMID.uuidString,
           s.guest?.address == adapter.guest.address,
-          s.guest?.hostKeyFingerprint == adapter.fingerprint else { throw GuideError.stopped("Owned workspace changed during identification") }
+          s.guest?.hostKeyFingerprint == adapter.fingerprint,
+          (s.guestUsername ?? "user") == adapter.guest.username else { throw GuideError.stopped("Owned workspace changed during identification") }
         s.device = device; s.phase = .identified
       }
       return device

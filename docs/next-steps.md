@@ -4,7 +4,7 @@
 
 ## 1. Make the Linux workspace usable
 
-- Confirm or repair the disposable guest account first: both app login and a separate direct Debian login as `user` were rejected. The guest installed and booted, but its account/password combination is not yet verified. Keep credentials private and let the person perform any password change.
+- The disposable guest account is now confirmed as `echotest`: direct console login succeeded, its home directory is `/home/echotest`, and SSH is active. The earlier assumed `user` account was absent. Validate the corrected native account selection and bootstrap; do not reset the working password.
 - After direct account authentication succeeds, authenticate through the app’s serial bootstrap. The serial reader preserves framed bytes; an in-progress or missing initial prompt stops without submitting credentials and requires explicit inspection or graceful restart.
 - Use the isolated app session (`--state-root ABSOLUTE_DIRECTORY`) to avoid changing an existing installation session. Two distinct managed VM identities are recorded, but neither has established fresh authenticated guest readiness.
 - Enable translation and confirm it survives a guest restart.

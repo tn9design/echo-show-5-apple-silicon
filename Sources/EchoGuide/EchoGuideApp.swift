@@ -82,6 +82,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   @State private var guestConsoleReady = false
   @State private var workspaceRegistered = false
   @State private var guestPassword = ""
+  @State private var guestUsername = "user"
+  @State private var selectedWorkspaceUTM: URL?
   @State private var backupProgress: BackupProgress?
   @State private var activeBackupID: UUID?
   @State private var poweredWait: PoweredWaitStatus?
@@ -229,6 +231,12 @@ private enum GuideStep: String, CaseIterable, Identifiable {
         "In UTM, open Virtual Machine → USB Devices and choose the Echo for the workspace identified by this session. A successful attachment still requires guest identity checks."
       )
       VStack(alignment: .leading, spacing: 8) {
+        Button("Choose a different UTM application…") {
+          if let selection = selectFile(message: "Select the pinned UTM 5.0.6 application for workspace actions.") {
+            selectedWorkspaceUTM = selection
+            status = "UTM selection updated for this app session. Its version and workspace ownership will be checked when an action runs."
+          }
+        }
         Button("Reconcile interrupted workspace creation…") { workspaceLifecycle(.reconcile) }
         Button("Start owned workspace…") { workspaceLifecycle(.start) }.disabled(!workspaceRegistered)
         Button("Gracefully stop owned workspace…") { workspaceLifecycle(.stop) }.disabled(!workspaceRegistered)
@@ -237,8 +245,10 @@ private enum GuideStep: String, CaseIterable, Identifiable {
         .font(.caption).foregroundStyle(.secondary)
       GroupBox("Experimental pilot: authenticate the Linux guest") {
         VStack(alignment: .leading, spacing: 10) {
-          Text("Finish Debian setup with the account named user and the SSH server installed. Enter that temporary Linux account password below. The app logs in through the app-owned serial console, obtains the guest host key, and installs this workspace’s public SSH key for user. Graphical-display login alone is insufficient. These actions do not write to the Echo.")
+          Text("Finish Debian setup with the SSH server installed. Enter the actual Linux username you created and its temporary password below. The app logs in through the app-owned serial console, obtains the guest host key, and installs this workspace’s public SSH key for that account. Graphical-display login alone is insufficient. These actions do not write to the Echo.")
           Toggle("The user account and SSH server setup are complete", isOn: $guestConsoleReady)
+          TextField("Linux username (not the full name)", text: $guestUsername)
+            .textFieldStyle(.roundedBorder).disabled(busy)
           SecureField("Temporary Linux user password", text: $guestPassword)
             .textFieldStyle(.roundedBorder).disabled(busy)
           Text("The password is used in memory for this action, cleared from the field immediately, and never saved to the session or diagnostics. Re-enter it for another action.")
@@ -422,9 +432,19 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     return panel.runModal() == .OK ? panel.url : nil
   }
 
+  private func selectWorkspaceUTM(message: String) -> URL? {
+    if let selectedWorkspaceUTM,
+      FileManager.default.fileExists(atPath: selectedWorkspaceUTM.path) {
+      return selectedWorkspaceUTM
+    }
+    guard let selection = selectFile(message: message) else { return nil }
+    selectedWorkspaceUTM = selection
+    return selection
+  }
+
   private func prepareWorkspace() {
     guard let engine,
-      let utm = selectFile(message: "Select the verified UTM 5.0.6 application."),
+      let utm = selectWorkspaceUTM(message: "Select the verified UTM 5.0.6 application."),
       let iso = selectFile(message: "Select the pinned Debian ARM64 netinst ISO.")
     else { return }
     busy = true
@@ -449,7 +469,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
 
   private func configureWorkspaceFiles() {
     guard let engine,
-      let utm = selectFile(message: "Select UTM 5.0.6 for the app-owned workspace."),
+      let utm = selectWorkspaceUTM(message: "Select UTM 5.0.6 for the app-owned workspace."),
       let iso = selectFile(message: "Select the pinned Debian ARM64 netinst ISO.") else { return }
     do {
       try engine.configureWorkspacePreparation(utm: utm, iso: iso)
@@ -464,12 +484,13 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     guard guestConsoleReady, !guestPassword.isEmpty, let engine else { return }
     let password = guestPassword
     guestPassword = ""
-    guard let utm = selectFile(message: "Select verified UTM. The app logs into the owned Debian serial console as user and installs the workspace public SSH key.") else { return }
+    guard let utm = selectWorkspaceUTM(message: "Select verified UTM. The app logs into the owned Debian serial console as the selected Linux account and installs the workspace public SSH key.") else { return }
     busy = true
     operation = "Acquiring guest trust through the owned serial channel…"
     guestConsoleReady = false
     Task {
       do {
+        try engine.configureGuestUsername(guestUsername)
         let evidence = try await engine.bootstrapOwnedGuest(utm: utm, password: password)
         status = "Guest host trust acquired through the owned serial channel.\nOwned VM: \(evidence.trust.ownedVMID.uuidString)\nGuest address (private): \(evidence.address)\nWorkspace public SSH key authorized: \(evidence.clientAuthorized ? "yes" : "no")\nTranslation, original client, and USB readiness are not yet verified."
       } catch { status = "Guest bootstrap stopped: \(error.localizedDescription). Inspect the owned serial console before retrying; interrupted key setup is not replayed automatically." }
@@ -482,13 +503,14 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     guard guestConsoleReady, !guestPassword.isEmpty, let engine else { return }
     let password = guestPassword
     guestPassword = ""
-    guard let utm = selectFile(message: "Select verified UTM. The app authenticates the owned Debian serial console as user."),
+    guard let utm = selectWorkspaceUTM(message: "Select verified UTM. The app authenticates the owned Debian serial console as the selected Linux account."),
           let fastboot = selectFile(message: "Select the original publisher Linux fastboot binary from the CHECKERS package; its pinned hash will be checked.") else { return }
     busy = true
     operation = "Verifying guest trust, translation, and offline client protocol…"
     guestConsoleReady = false
     Task {
       do {
+        try engine.configureGuestUsername(guestUsername)
         let mock = try GuestAdapter.bundledValidationHelper()
         let readiness = try await engine.validateOwnedGuest(utm: utm, fastboot: fastboot, mockScript: mock, password: password)
         status = try encoded(readiness) + "\nThis is guest/client validation only. Echo USB assignment and exact device compatibility still require independent checks."
@@ -500,7 +522,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
 
   private func workspaceLifecycle(_ action: WorkspaceAction) {
     guard let engine,
-          let utm = selectFile(message: "Select the verified UTM application to inspect this session’s owned workspace.") else { return }
+          let utm = selectWorkspaceUTM(message: "Select the verified UTM application to inspect this session’s owned workspace.") else { return }
     busy = true
     operation = "Checking app-owned workspace…"
     Task {
@@ -515,10 +537,16 @@ private enum GuideStep: String, CaseIterable, Identifiable {
           }
         case .start:
           let info = try await engine.startOwnedWorkspace(utm: utm)
-          status = "Owned workspace start result. Observed VM state only; guest and USB readiness are unverified.\n" + (try encoded(info))
+          status = (info.state == .started
+            ? "The Linux workspace is running. Wait for Debian to finish booting; leave its console untouched before guest bootstrap."
+            : "The Linux workspace has not finished starting. Observed state: \(info.state.rawValue). Guest bootstrap is not ready yet.")
+            + "\nGuest and USB readiness still require verification.\n" + (try encoded(info))
         case .stop:
           let info = try await engine.stopOwnedWorkspace(utm: utm)
-          status = "Graceful stop request result. Observed VM state only; a stop request does not guarantee the guest has stopped.\n" + (try encoded(info))
+          status = (info.state == .stopped
+            ? "The Linux workspace has stopped. You can now click Start owned workspace."
+            : "Shutdown was requested, but the Linux workspace is still \(info.state.rawValue). Wait before checking again; do not click Start yet.")
+            + "\n" + (try encoded(info))
         }
       } catch { status = "Workspace lifecycle action stopped: \(error.localizedDescription)" }
       refresh()
@@ -619,6 +647,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     guard let engine else { return }
     do {
       let record = try engine.status()
+      if let username = record.guestUsername { guestUsername = username }
       session = try encoded(record)
       pendingApproval = record.pendingApproval
       workspaceRegistered = record.vmID != nil
@@ -636,7 +665,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   }
 
   private func discoverFastboot() {
-    guard let engine, let utm = selectFile(message: "Select the verified UTM application. EchoGuide will freshly verify this session’s exact owned VM is running before listing fastboot devices.") else { return }
+    guard let engine, let utm = selectWorkspaceUTM(message: "Select the verified UTM application. EchoGuide will freshly verify this session’s exact owned VM is running before listing fastboot devices.") else { return }
     busy = true; fastbootSupported = false; fastbootCandidates = []; fastbootSerial = ""
     operation = "Rechecking guest readiness and listing fastboot devices…"
     Task {
@@ -649,7 +678,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   }
 
   private func identifyFastboot() {
-    guard let engine, let utm = selectFile(message: "Select the verified UTM application for a fresh owned-workspace check before and after read-only Echo identification.") else { return }
+    guard let engine, let utm = selectWorkspaceUTM(message: "Select the verified UTM application for a fresh owned-workspace check before and after read-only Echo identification.") else { return }
     let selected = fastbootSerial
     busy = true; fastbootSupported = false
     operation = "Verifying the selected Echo’s product, lock state, and exact bootloader…"

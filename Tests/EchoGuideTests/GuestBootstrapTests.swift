@@ -30,6 +30,15 @@ final class GuestBootstrapTests: XCTestCase {
       try GuestBootstrapProtocol.parse(
         frame(request).trimmingCharacters(in: .newlines), for: request))
   }
+  func testTerminalRedrawOutsideFrameDoesNotAlterTrustedFields() throws {
+    let request = try GuestBootstrapRequest(ownedVMID: UUID())
+    XCTAssertNoThrow(try GuestBootstrapProtocol.parse(
+      "echo\rredraw\n" + frame(request) + "prompt\r", for: request))
+    for field in ["VERSION 1", "USER user", "ARCH aarch64", "IPV4 192.168.64.7", "HOST_KEY", "CLIENT_AUTH read-only"] {
+      XCTAssertThrowsError(try GuestBootstrapProtocol.parse(
+        frame(request).replacingOccurrences(of: field, with: "\r" + field), for: request))
+    }
+  }
   func testPublicKeyAuthorizationIsExplicitAndBuilderFixed() throws {
     let readOnly = try GuestBootstrapRequest(ownedVMID: UUID())
     XCTAssertFalse(GuestBootstrapProtocol.consoleCommand(for: readOnly).contains("authorized_keys"))

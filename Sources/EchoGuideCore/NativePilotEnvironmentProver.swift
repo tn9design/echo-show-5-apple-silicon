@@ -49,7 +49,7 @@ struct NativePilotEnvironmentProver: Sendable {
     try await verifyVM()
     let directory = engine.store.root.appendingPathComponent("guest-" + saved.vmID.uuidString)
     let guest = try GuestAdapter(runner: bounded, ownedVMID: saved.vmID,
-      credentialsDirectory: directory, address: saved.address)
+      credentialsDirectory: directory, address: saved.address, username: session.guestUsername ?? "user")
     let trust = GuestIdentificationAdapter(guest: guest, profile: engine.profile,
                                            fingerprint: saved.hostKeyFingerprint)
     try trust.validateTrust()
@@ -63,6 +63,7 @@ struct NativePilotEnvironmentProver: Sendable {
     }
     let current = try engine.status()
     guard current.id == session.id, current.vmID == session.vmID,
+      (current.guestUsername ?? "user") == guest.username,
       current.guest?.vmID == saved.vmID, current.guest?.address == saved.address,
       current.guest?.hostKeyFingerprint == saved.hostKeyFingerprint,
       current.guest?.ready == true else {

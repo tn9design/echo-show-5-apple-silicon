@@ -29,6 +29,7 @@ actor GuestUnlockTransport: UnlockTransport {
     serial = nil; expected = [:]; identityIndex = 0
     guard let record = session.guest, record.ready, record.vmID == guest.ownedVMID,
       session.vmID == guest.ownedVMID.uuidString, record.address == guest.address,
+      (session.guestUsername ?? "user") == guest.username,
       let device = session.device, device.serial.range(of: "^[A-Za-z0-9]+$", options: .regularExpression) != nil,
       profile.id == "checkers-20240709-v1", device.product == profile.product, device.lkBuild == profile.lkBuild
     else { throw GuideError.stopped("Owned guest/session identity changed") }
@@ -50,14 +51,14 @@ actor GuestUnlockTransport: UnlockTransport {
     else { throw GuideError.stopped("Pinned local unlock payload failed verification") }
     let readiness = try await guest.readiness()
     guard readiness.ready else { throw GuideError.stopped(readiness.reason) }
-    let remote = "/home/user/echoguide/fastbrick-20240709.img"
+    let remote = "\(guest.workspacePath)/fastbrick-20240709.img"
     // Never overwrite an existing unknown payload, including a symlink.
     let check = try await ssh("test ! -L \(remote) || exit 44; if test -e \(remote); then sha256sum \(remote); wc -c < \(remote); else printf 'ABSENT\\n'; fi")
     guard check.exitCode == 0 else { throw GuideError.stopped("Guest payload inspection failed") }
     if check.stdout == "ABSENT\n" {
       let options = try Array(guest.arguments(command: "").dropLast(2)).filter { $0 != "-T" }
       let partial = remote + ".partial-" + UUID().uuidString
-      let transfer = try await bounded("/usr/bin/scp", ["-B"] + options + [payload.path, "user@" + guest.address + ":" + partial], seconds: 300)
+      let transfer = try await bounded("/usr/bin/scp", ["-B"] + options + [payload.path, guest.username + "@" + guest.address + ":" + partial], seconds: 300)
       guard transfer.exitCode == 0 else { throw GuideError.stopped("Pinned payload transfer failed") }
       let staged = try await ssh("set -eu; test ! -L \(partial); printf '%s  %s\\n' \(artifact.sha256) \(partial) | sha256sum -c - >/dev/null; test \"$(wc -c < \(partial))\" -eq \(size); chmod 600 \(partial); ln \(partial) \(remote); rm \(partial); printf 'STAGED\\n'")
       guard staged.exitCode == 0, staged.stdout == "STAGED\n" else { throw GuideError.stopped("Guest payload staging failed; unknown destination was not overwritten") }
@@ -68,7 +69,7 @@ actor GuestUnlockTransport: UnlockTransport {
       throw GuideError.stopped("Local payload changed during staging")
     }
     let clientHash = try profile.artifact(named: "fastboot").sha256
-    let verification = try await ssh("set -eu; test ! -L \(remote); printf '%s  %s\\n' \(clientHash) /home/user/echoguide/fastboot \(artifact.sha256) \(remote) | sha256sum -c - >/dev/null; test \"$(wc -c < \(remote))\" -eq \(size); timeout --version >/dev/null; printf 'VERIFIED\\n'")
+    let verification = try await ssh("set -eu; test ! -L \(remote); printf '%s  %s\\n' \(clientHash) \(guest.workspacePath)/fastboot \(artifact.sha256) \(remote) | sha256sum -c - >/dev/null; test \"$(wc -c < \(remote))\" -eq \(size); timeout --version >/dev/null; printf 'VERIFIED\\n'")
     guard verification.exitCode == 0, verification.stdout == "VERIFIED\n" else { throw GuideError.stopped("Fresh guest unlock artifacts failed verification") }
     serial = device.serial
     expected = ["product": profile.product, "unlock_status": "false", "lk_build_desc": profile.lkBuild]
@@ -83,7 +84,7 @@ actor GuestUnlockTransport: UnlockTransport {
         serial = nil; throw GuideError.stopped("Unexpected unlock identity command")
       }
       arguments = "getvar " + key
-      let result = try await ssh("timeout --kill-after=2s 10s /home/user/echoguide/fastboot -s \(value) \(arguments)")
+      let result = try await ssh("timeout --kill-after=2s 10s \(guest.workspacePath)/fastboot -s \(value) \(arguments)")
       guard result.exitCode == 0, PilotSequence.exactGetvar(result.stdout + result.stderr, key: key, expected: expectedValue) else {
         serial = nil; return result
       }
@@ -93,7 +94,7 @@ actor GuestUnlockTransport: UnlockTransport {
       guard value == approvedSerial, identityIndex == 3, timeoutSeconds == 8 else {
         serial = nil; throw GuideError.stopped("Unexpected unlock write command")
       }
-      let result = try await ssh("timeout --kill-after=2s 8s /home/user/echoguide/fastboot -s \(value) flash brick /home/user/echoguide/fastbrick-20240709.img", seconds: 23)
+      let result = try await ssh("timeout --kill-after=2s 8s \(guest.workspacePath)/fastboot -s \(value) flash brick \(guest.workspacePath)/fastbrick-20240709.img", seconds: 23)
       if !PilotSequence.ordinaryRejection(result.stdout + result.stderr, exit: result.exitCode) { serial = nil }
       return result
     }

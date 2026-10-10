@@ -25,6 +25,7 @@ final class SerialLoginTests: XCTestCase {
         Darwin.close(slave)
       }
       _ = fcntl(master, F_SETFL, O_NONBLOCK)
+      let account = duplicatePrompt ? "echotest" : "user"
       let terminal = try SerialTransport(
         channel: OwnedSerialChannel(vmID: UUID(), portID: 0, path: String(cString: name)))
       let fd = master
@@ -59,11 +60,11 @@ final class SerialLoginTests: XCTestCase {
         return [user, password]
       }
       do {
-        try await SerialLogin.authenticate(terminal, password: "fixture-only")
+        try await SerialLogin.authenticate(terminal, password: "fixture-only", username: account)
         XCTAssertTrue(accepted)
       } catch { XCTAssertFalse(accepted) }
       let received = try await peer.value
-      XCTAssertEqual(received, existingShell ? [] : ["user\n", "fixture-only\n"])
+      XCTAssertEqual(received, existingShell ? [] : [account + "\n", "fixture-only\n"])
       await terminal.close()
     }
   }

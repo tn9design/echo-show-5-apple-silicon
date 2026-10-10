@@ -22,17 +22,18 @@ extension WorkflowEngine {
       let specification = try JSONDecoder().decode(
         OwnedVMSpecification.self,
         from: Data(contentsOf: self.store.root.appendingPathComponent("workspace-intent.json")))
+      let username = try GuestUsername.validated(state.guestUsername ?? "user")
       let adapter = UTMAdapter(runner: self.runner, application: utm)
       let channel = try await adapter.serialChannel(specification: specification, vmID: id)
       let terminal = try SerialTransport(channel: channel)
       do {
-        if let password { try await SerialLogin.authenticate(terminal, password: password) }
-        let observation = try GuestBootstrapRequest(ownedVMID: id)
+        if let password { try await SerialLogin.authenticate(terminal, password: password, username: username) }
+        let observation = try GuestBootstrapRequest(ownedVMID: id, username: username)
         let initial = try await Self.bootstrapExchange(terminal, request: observation)
         let guest = try GuestAdapter(
           runner: self.runner, ownedVMID: id,
           credentialsDirectory: self.store.root.appendingPathComponent("guest-" + id.uuidString),
-          address: initial.address)
+          address: initial.address, username: username)
         // A failed/interrupted identity setup is inspected rather than overwritten or replayed.
         let publicKeyFile = try await guest.createClientIdentity()
         let publicKey = try String(contentsOf: publicKeyFile, encoding: .utf8)
@@ -42,7 +43,7 @@ extension WorkflowEngine {
           throw GuideError.stopped(
             "Owned VM serial channel changed; inspect before key installation")
         }
-        let installation = try GuestBootstrapRequest(ownedVMID: id, clientPublicKey: publicKey)
+        let installation = try GuestBootstrapRequest(ownedVMID: id, clientPublicKey: publicKey, username: username)
         let installed = try await Self.bootstrapExchange(terminal, request: installation)
         guard installed.address == initial.address,
           installed.trust.publicHostKey == initial.trust.publicHostKey
@@ -51,7 +52,7 @@ extension WorkflowEngine {
         }
         let fingerprint = try guest.pinHostKey(installed.trust)
         try self.store.transaction { session in
-          guard session.vmID == id.uuidString else { throw GuideError.stopped("Workspace changed") }
+          guard session.vmID == id.uuidString, (session.guestUsername ?? "user") == username else { throw GuideError.stopped("Workspace changed") }
           session.guest = GuestWorkspaceRecord(
             vmID: id, address: installed.address,
             hostKeyFingerprint: fingerprint, checkedAt: Date(), ready: false)
@@ -78,15 +79,16 @@ extension WorkflowEngine {
       let spec = try JSONDecoder().decode(
         OwnedVMSpecification.self,
         from: Data(contentsOf: self.store.root.appendingPathComponent("workspace-intent.json")))
+      let username = try GuestUsername.validated(state.guestUsername ?? "user")
       let adapter = UTMAdapter(runner: self.runner, application: utm)
       let channel = try await adapter.serialChannel(specification: spec, vmID: saved.vmID)
       let terminal = try SerialTransport(channel: channel)
       let evidence: GuestBootstrapEvidence
       do {
-        if let password { try await SerialLogin.authenticate(terminal, password: password) }
+        if let password { try await SerialLogin.authenticate(terminal, password: password, username: username) }
         evidence = try await Self.bootstrapExchange(
           terminal,
-          request: GuestBootstrapRequest(ownedVMID: saved.vmID))
+          request: GuestBootstrapRequest(ownedVMID: saved.vmID, username: username))
         await terminal.close()
       } catch {
         await terminal.close()
@@ -96,7 +98,7 @@ extension WorkflowEngine {
         runner: self.runner, ownedVMID: saved.vmID,
         credentialsDirectory: self.store.root.appendingPathComponent(
           "guest-" + saved.vmID.uuidString),
-        address: evidence.address)
+        address: evidence.address, username: username)
       let fingerprint = try guest.pinHostKey(evidence.trust)
       guard fingerprint == saved.hostKeyFingerprint else {
         throw GuideError.stopped("Guest host key changed")
@@ -104,7 +106,7 @@ extension WorkflowEngine {
       try await guest.stageValidationAssets(fastboot: fastboot, mockScript: mockScript)
       let readiness = try await guest.readiness()
       try self.store.transaction { session in
-        guard session.vmID == saved.vmID.uuidString else {
+        guard session.vmID == saved.vmID.uuidString, (session.guestUsername ?? "user") == username else {
           throw GuideError.stopped("Workspace changed")
         }
         session.guest = GuestWorkspaceRecord(
