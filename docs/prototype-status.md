@@ -16,7 +16,7 @@ Still required before Milestone B is complete: live authorized recovery/backup v
 
 Still required before Milestone C: live dispatch validation, fresh-VM readiness proof, additional independent device trials, and hardware checks. The app exposes saved powered-wait safety guidance and a checked local ROM chooser/device-side staging action after verified backups; neither enables live unlock/wipe/install dispatch. The existing working Echo is not a test target.
 
-Distribution: no signing identities were available in the inspected host keychain. The packaging script produces source previews without credentials and signs/notarizes only when private identity and notary profile are supplied. Notarization and fresh publisher downloads have not been tested.
+Distribution: no signing identities were available in the inspected host keychain. The packaging script produces source previews without credentials and signs/notarizes only when private identity and notary profile are supplied. Notarization remains untested. The production downloader fetched all three pinned publisher artifacts in an isolated session; independent size/SHA-256 checks and a second verified-reuse run passed. This does not establish VM or device readiness.
 
 The test count and release evidence are recorded in docs/implementation-results.md. Persistent client configuration examples are untested; the narrow ephemeral Codex smoke above does not establish approval, backup, or installation integration.
 
