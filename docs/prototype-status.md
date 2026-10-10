@@ -1,9 +1,19 @@
-# Preparation prototype status
+# Implementation and validation status
 
-Implemented native SwiftUI host/USB checks, user-selected manifest verification and pinned UTM5.0.6/Lineage CHECKERS v0.7 download preparation. Completed downloads require HTTP200 and expected SHA-256 before moving into the chosen destination. Verified existing files are reused. Existing mismatches stop without replacement. No device-write command dispatcher exists in the app.
+This is an experimental source preview, not a finished installer. No live unlock/wipe/install dispatcher is enabled in the app, CLI, or MCP server.
 
-Validation: Swift build and local app launch/process check passed. Three XCTest cases passed: known SHA-256 vector, verified file reuse without network, mismatch preserves existing file. Network-share test signing initially failed because of filesystem metadata; script now uses local temporary build/app storage.
+Implemented: shared Swift workflow library; pinned compatibility profile; structured USB enumeration; private persisted sessions and process locks; native approval requests; guided SwiftUI app; profile-based downloads with measured byte progress, cancellation, size/hash validation and safe destinations; CLI and stdio MCP; portable assistant skill; MIT license; source/signing packaging scripts.
 
-Initial window and controls inspected via accessibility. Subsequent computer-control calls dropped their native connection. Full button interaction, publisher network-download handling and export/distribution signing remain unverified. Tests used local fixtures and did not access the Echo or fetch large files.
+Adapters implemented with injectable runners: UTM 5.0.6 owned-VM creation, compatible TWRP identification, named partition discovery, streamed private backups with mount/space/size/hash checks, unique SSH client credentials, VM-bound host-key pinning, verified guest validation asset staging and offline guest readiness. These are exercised with local fixtures, not validated live integration.
 
-Next: supported isolated UTM guest provisioning, guest readiness/original-client validation, private verified backup assistant, and only later supervised installation. A first successful device does not establish unlock repeatability.
+Internal pilot code tests identity/rejection parsing and installation stop conditions. Current-invocation recovery log evidence is required; stale successes never authorize reboot. The reviewed standalone bounded unlock script remains a separate experimental developer tool with explicit execution, pinned hashes and exact ordinary-rejection classification. It is not called by the GUI/MCP.
+
+Still required before Milestone A is complete: fresh managed VM install/input configuration and lifecycle validation; serial bootstrap host-key acquisition and native UI wiring; end-to-end authenticated guest bootstrap; clean-host and guest-restart checks. The cloud-image provisioning path is deferred until this baseline works. VM creation alone never means guest readiness.
+
+Still required before Milestone B is complete: live authorized recovery/backup validation, tested recovery from interruption, and client integration tests. Existing app-owned backup destinations are not overwritten; interrupted partial captures require inspection and a fresh destination.
+
+Still required before Milestone C: native approved dispatch integration, complete timed unlock orchestration/powered waiting UI, additional independent device trials, and hardware checks. The existing working Echo is not a test target.
+
+Distribution: no signing identities were available in the inspected host keychain. The packaging script produces source previews without credentials and signs/notarizes only when private identity and notary profile are supplied. Notarization and fresh publisher downloads have not been tested.
+
+The test count and release evidence are recorded in docs/implementation-results.md. Client configuration examples are not claims of tested Claude/Codex integrations.

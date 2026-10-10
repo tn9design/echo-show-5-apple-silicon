@@ -1,0 +1,15 @@
+name: Offline checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test without devices
+        run: swift test
+      - name: CLI and MCP protocol smoke
+        run: python3 script/test-ai-interfaces.py "$(swift build --show-bin-path)"
+      - name: Source packaging
+        run: bash script/package-release.sh /tmp/EchoGuide-release

@@ -4,9 +4,13 @@ A working-path guide and starter tools for installing LineageOS on the **first-g
 
 One device reached TWRP, successfully installed LineageOS 18.1 v0.7, completed setup and connected to Wi-Fi. This is experimental: repeatability and full hardware functionality remain untested.
 
-## Native preflight prototype
+## Guided source preview
 
-A SwiftUI Mac app is included. Run `bash script/build_and_run.sh` with Xcode Command Line Tools installed. It checks CPU/macOS and USB product names, and streams file SHA-256 verification against a selected folder’s hashes.json. The app can also download pinned UTM/ROM releases to a chosen folder and verify them before exposing the finished files. Existing mismatched files are preserved and stop preparation. It does not install software or send device-writing commands. The selected manifest must itself come from a trusted source. App distribution/signing and full UI interaction testing remain pending.
+A native SwiftUI app, shared Swift workflow engine, CLI and local MCP server are included. Run `bash script/build_and_run.sh` with Swift 6/Xcode tools installed. The app provides verified downloads, structured host inspection, managed-VM creation and recovery/backup adapter controls. Guest preparation and live backup integration still need validation. Unlock/wipe/install execution is disabled in this preview.
+
+- [Implementation status](docs/prototype-status.md) and [test evidence](docs/implementation-results.md).
+- [AI setup and portable skill](docs/ai-integration.md).
+- Build a shareable source preview with `bash script/package-release.sh`.
 
 ## Start here
 
@@ -14,6 +18,8 @@ A SwiftUI Mac app is included. Run `bash script/build_and_run.sh` with Xcode Com
 - [Guided Mac app proposal](docs/guided-app.md): how we can remove the manual work.
 - [Evidence and remaining questions](docs/validation.md): what we know actually worked.
 - [Verified download hashes](hashes.json).
+
+Project-authored code and documentation are MIT licensed; upstream tools retain their own licenses.
 
 The tools directory contains guest translation setup, an offline protocol mock and a bounded unlock runner. They are not a complete installer. Run tools in a dedicated Linux guest as described in the guide. No vendor binaries, ROMs, VM accounts or device backups are distributed here. Download vendor artifacts from the linked maintainers.
 

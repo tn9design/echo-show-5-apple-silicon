@@ -3,6 +3,7 @@
 import hashlib
 import json
 import pathlib
+import re
 import subprocess
 import sys
 import time
@@ -46,9 +47,13 @@ for attempt in range(1, 4):
     log.write_text(json.dumps(records, indent=2))
     print(json.dumps(records[-1], indent=2), flush=True)
     # Only the already-observed complete rejection permits another attempt.
-    ordinary = (result.returncode == 1 and 'OKAY [' in output and
-                'FAILED (remote: the command you input is restricted on locked hw)' in output and
-                'Finished. Total time:' in output)
+    ordinary = result.returncode == 1 and re.fullmatch(
+        r"target reported max download size of 114294784 bytes\n"
+        r"Sending 'brick' \(111785 KB\)\.\.\.\n"
+        r"OKAY \[ *[0-9]+\.[0-9]+s\]\n"
+        r"Writing 'brick'\.\.\.\n"
+        r"FAILED \(remote: the command you input is restricted on locked hw\)\n"
+        r"Finished\. Total time: [0-9]+\.[0-9]+s\n?", output) is not None
     special = any(marker in output for marker in
                   ['eMMC-RO', 'Device mismatch', 'waiting for', 'error:', 'ERROR'])
     if not ordinary or special:

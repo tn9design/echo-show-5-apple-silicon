@@ -1,0 +1,49 @@
+{
+  "id": "checkers-20240709-v1",
+  "product": "CHECKERS",
+  "lkBuild": "44072a3-20240709_170103",
+  "minimumWritingOS": 27,
+  "utmVersion": "5.0.6",
+  "guestVersion": "13.7.0",
+  "recoveryVersion": "3.7.0_9-0",
+  "romVersion": "18.1-checkers-v0.7",
+  "experimental": true,
+  "artifacts": [
+    {
+      "name": "UTM-5.0.6.dmg",
+      "sha256": "6a722486a660e0ab2cf5826bbeaee0f5963999029366709f5a3048d73b1d7cb1",
+      "publisherURL": "https://github.com/utmapp/UTM/releases/download/v5.0.6/UTM.dmg",
+      "size": 303864562
+    },
+    {
+      "name": "debian-13.7.0-arm64-netinst.iso",
+      "sha256": "6e93fa1759bd9d4b0fc11e938987de6967ee7de5297dac1be27c3a75cc17024b",
+      "publisherURL": null,
+      "size": null
+    },
+    {
+      "name": "fastboot",
+      "sha256": "cb3d13b850143da85eb4b2099462514894459213da93d03d6ff4782d927d6e20",
+      "publisherURL": null,
+      "size": null
+    },
+    {
+      "name": "fastbrick-20240709.img",
+      "sha256": "c57acac911b8dc9c7f5fec2df25ba04ba8b70a26da14313c8a0d242e984d6091",
+      "publisherURL": null,
+      "size": 114468012
+    },
+    {
+      "name": "twrp.img",
+      "sha256": "dcc75bb651894c343039d45af73c4d900594762f6f55187c1ebdaf12d0ae59f5",
+      "publisherURL": null,
+      "size": 15427584
+    },
+    {
+      "name": "lineage-18.1-20260904-UNOFFICIAL-checkers.zip",
+      "sha256": "785fa643fd68b2e6f6f02d96a2da58373c6a577b92a27cf6cec69603bb94068e",
+      "publisherURL": "https://github.com/amazon-oss/releases/releases/download/lineage-18.1-checkers-v0.7/lineage-18.1-20260904-UNOFFICIAL-checkers.zip",
+      "size": 485795474
+    }
+  ]
+}

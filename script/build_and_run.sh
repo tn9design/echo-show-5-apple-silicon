@@ -1,13 +1,35 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-pkill -x EchoGuide >/dev/null 2>&1 || true
+set +e
+pgrep -x EchoGuide >/dev/null
+process_status=$?
+set -e
+if [[ $process_status == 0 ]]; then
+    echo 'EchoGuide is already running. Finish any active operation and quit the app before rebuilding; no process was stopped.' >&2
+    exit 1
+elif [[ $process_status != 1 ]]; then
+    echo 'Cannot inspect running apps. No existing app bundle was changed; run from a permitted local terminal.' >&2
+    exit 1
+fi
 scratch="${TMPDIR:-/private/tmp}/EchoGuideBuild"
-swift build --scratch-path "$scratch"
-binary="$(swift build --scratch-path "$scratch" --show-bin-path)/EchoGuide"
+export CLANG_MODULE_CACHE_PATH="$scratch/ModuleCache"
+export SWIFT_MODULECACHE_PATH="$scratch/ModuleCache"
+build_options=(--disable-sandbox --scratch-path "$scratch")
+swift build "${build_options[@]}"
+products="$(swift build "${build_options[@]}" --show-bin-path)"
+binary="$products/EchoGuide"
 bundle="${TMPDIR:-/private/tmp}/EchoGuidePreview/EchoGuide.app"
 mkdir -p "$bundle/Contents/MacOS"
 cp "$binary" "$bundle/Contents/MacOS/EchoGuide"
+# Native SwiftPM's Bundle.module lookup uses Bundle.main.bundleURL.
+# Keep resources in the app root so the preview also works without build files.
+shopt -s nullglob
+for resources in "$products"/*.bundle; do
+    resource_name="$(basename "$resources")"
+    rm -rf "$bundle/$resource_name"
+    cp -R "$resources" "$bundle/$resource_name"
+done
 cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -16,6 +38,7 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>org.echoguide.preflight</string>
 <key>CFBundleName</key><string>EchoGuide</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>NSAppleEventsUsageDescription</key><string>EchoGuide creates and manages its isolated UTM Linux workspace.</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>

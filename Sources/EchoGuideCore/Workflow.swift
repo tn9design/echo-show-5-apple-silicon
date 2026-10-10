@@ -1,0 +1,414 @@
+import CryptoKit
+import Darwin
+import Foundation
+
+public struct CommandResult: Sendable {
+  public let stdout: String
+  public let stderr: String
+  public let exitCode: Int32
+  public init(stdout: String, stderr: String = "", exitCode: Int32 = 0) {
+    self.stdout = stdout
+    self.stderr = stderr
+    self.exitCode = exitCode
+  }
+}
+public protocol CommandRunning: Sendable {
+  func run(executable: String, arguments: [String]) async throws -> CommandResult
+}
+public enum GuideError: Error, LocalizedError {
+  case stopped(String)
+  public var errorDescription: String? {
+    switch self {
+    case .stopped(let s): return s
+    }
+  }
+}
+public struct Artifact: Codable, Sendable {
+  public let name: String
+  public let sha256: String
+  public let publisherURL: String?
+  public let size: Int64?
+}
+public struct CompatibilityProfile: Codable, Sendable {
+  public let id: String
+  public let product: String
+  public let lkBuild: String
+  public let minimumWritingOS: Int
+  public let utmVersion: String
+  public let guestVersion: String
+  public let recoveryVersion: String
+  public let romVersion: String
+  public let experimental: Bool
+  public let artifacts: [Artifact]
+  public static func bundled() throws -> Self {
+    guard let url = Bundle.module.url(forResource: "checkers-v1", withExtension: "json") else {
+      throw GuideError.stopped("Compatibility profile missing")
+    }
+    return try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
+  }
+}
+public enum Phase: String, Codable, Sendable {
+  case setup, workspace, identified, recovery, backedUp, awaitingApproval, inspectionRequired,
+    installed, finished
+}
+public enum WriteAction: String, Codable, Sendable { case unlock, install }
+public struct DeviceIdentity: Codable, Sendable, Equatable {
+  public var serial: String
+  public var product: String
+  public var lkBuild: String
+  public var recoveryVersion: String?
+  public init(serial: String, product: String, lkBuild: String, recoveryVersion: String? = nil) {
+    self.serial = serial
+    self.product = product
+    self.lkBuild = lkBuild
+    self.recoveryVersion = recoveryVersion
+  }
+}
+public struct ApprovalRequest: Codable, Sendable {
+  public let id: UUID
+  public let action: WriteAction
+  public let device: DeviceIdentity
+  public let createdAt: Date
+  public let sessionID: UUID
+  public let prerequisitesDigest: String
+}
+public struct OperationRecord: Codable, Sendable {
+  public var id: UUID
+  public var action: String
+  public var startedAt: Date
+  public var completedAt: Date?
+  public var result: String?
+}
+public struct SessionRecord: Codable, Sendable {
+  public var id = UUID()
+  public var phase: Phase = .setup
+  public var profileID: String
+  public var device: DeviceIdentity?
+  public var vmID: String?
+  public var adbPath: String?
+  public var backupDestination: String?
+  public var stagedROMHash: String?
+  public var pendingApproval: ApprovalRequest?
+  public var operations: [OperationRecord] = []
+  public var backupManifest: String?
+  public var startupConfirmed = false
+  public init(profileID: String) { self.profileID = profileID }
+}
+public struct HostInspection: Codable, Sendable {
+  public let architecture: String
+  public let macOS: String
+  public let writingBackendSupported: Bool
+  public let usbInspectionAvailable: Bool
+  public let devices: [USBDevice]
+  public let nextAction: String
+}
+public struct DiagnosticReport: Codable, Sendable {
+  public let profile: String
+  public let phase: Phase
+  public let operations: [String]
+  public let experimental: Bool
+  public let note: String
+}
+
+// File locking covers every process (app, CLI and MCP), not merely one Swift actor.
+public final class SessionStore: @unchecked Sendable {
+  public let root: URL
+  public init(root: URL) throws {
+    self.root = root
+    try FileManager.default.createDirectory(
+      at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+  }
+  public func transaction<T>(_ body: (inout SessionRecord) throws -> T) throws -> T {
+    let fd = open(root.appendingPathComponent("operation.lock").path, O_CREAT | O_RDWR, 0o600)
+    guard fd >= 0 else { throw GuideError.stopped("Cannot open workflow lock") }
+    defer { close(fd) }
+    guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+      throw GuideError.stopped("Another EchoGuide operation is active")
+    }
+    defer { flock(fd, LOCK_UN) }
+    let url = root.appendingPathComponent("session.json")
+    var session: SessionRecord
+    if FileManager.default.fileExists(atPath: url.path) {
+      session = try JSONDecoder().decode(SessionRecord.self, from: Data(contentsOf: url))
+    } else {
+      session = SessionRecord(profileID: try CompatibilityProfile.bundled().id)
+    }
+    let result = try body(&session)
+    let data = try JSONEncoder().encode(session)
+    try data.write(to: url, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    return result
+  }
+}
+public final class WorkflowEngine: @unchecked Sendable {
+  public static var defaultRoot: URL {
+    FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(
+      "Library/Application Support/EchoGuide")
+  }
+  public let store: SessionStore
+  public let profile: CompatibilityProfile
+  public init(root: URL = WorkflowEngine.defaultRoot) throws {
+    store = try SessionStore(root: root)
+    profile = try CompatibilityProfile.bundled()
+  }
+  public func status() throws -> SessionRecord {
+    try store.transaction { s in
+      let fd = open(store.root.appendingPathComponent("active.lock").path, O_CREAT | O_RDWR, 0o600)
+      if fd >= 0 {
+        defer { close(fd) }
+        if flock(fd, LOCK_EX | LOCK_NB) == 0 {
+          defer { flock(fd, LOCK_UN) }
+          if s.operations.contains(where: { $0.completedAt == nil }) {
+            s.phase = .inspectionRequired
+            s.pendingApproval = nil
+          }
+        }
+      }
+      return s
+    }
+  }
+  public func inspect() async throws -> HostInspection {
+    let r = ProcessRunner()
+    let arch = try await r.run(executable: "/usr/bin/uname", arguments: ["-m"])
+    let os = try await r.run(executable: "/usr/bin/sw_vers", arguments: ["-productVersion"])
+    let usb = try await r.run(executable: "/usr/sbin/ioreg", arguments: ["-a", "-p", "IOUSB"])
+    let a = arch.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    let v = os.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    let supported =
+      a == "arm64" && (Int(v.split(separator: ".").first ?? "0") ?? 0) >= profile.minimumWritingOS
+    return HostInspection(
+      architecture: a, macOS: v, writingBackendSupported: supported,
+      usbInspectionAvailable: usb.exitCode == 0,
+      devices: (try? USBInspection.parse(Data(usb.stdout.utf8))) ?? [],
+      nextAction: supported
+        ? "Prepare the isolated Linux workspace, then assign only the Echo USB accessory."
+        : "Device-writing backend requires Apple Silicon and macOS 27 or later; other versions are not validated."
+    )
+  }
+  public func diagnosticReport() throws -> DiagnosticReport {
+    let s = try status()
+    return DiagnosticReport(
+      profile: s.profileID, phase: s.phase,
+      operations: s.operations.map {
+        $0.action + ": " + ($0.completedAt == nil ? "incomplete" : "completed")
+      }, experimental: true,
+      note: "Serials, addresses, private paths, command output, credentials and backups omitted.")
+  }
+  public func requestApproval(action: WriteAction) throws -> ApprovalRequest {
+    let request = try store.transaction { s in
+      guard s.operations.allSatisfy({ $0.completedAt != nil }) else {
+        throw GuideError.stopped(
+          "An interrupted operation requires inspection; it cannot be replayed")
+      }
+      guard let d = s.device, d.product == profile.product,
+        action == .install
+          ? d.recoveryVersion == profile.recoveryVersion : d.lkBuild == profile.lkBuild
+      else { throw GuideError.stopped("Exact supported device/build has not been verified") }
+      guard action == .unlock ? s.phase == .identified : s.phase == .backedUp else {
+        throw GuideError.stopped("Required device mode or verified backups are missing")
+      }
+      if action == .install {
+        guard let manifest = s.backupManifest, FileManager.default.fileExists(atPath: manifest)
+        else { throw GuideError.stopped("Verified backup manifest is missing") }
+        let entries = try JSONDecoder().decode(
+          [VerifiedPartitionBackup].self, from: Data(contentsOf: URL(fileURLWithPath: manifest)))
+        guard
+          Set(entries.map { $0.partition.name })
+            == Set(["boot", "recovery", "system", "userdata", "metadata"]), entries.count == 5
+        else { throw GuideError.stopped("Backup manifest is incomplete") }
+        for entry in entries {
+          guard entry.filename == entry.partition.name + ".img" else {
+            throw GuideError.stopped("Invalid backup filename")
+          }
+          let url = URL(fileURLWithPath: manifest).deletingLastPathComponent()
+            .appendingPathComponent(entry.filename)
+          let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
+          guard size?.uint64Value == entry.partition.size,
+            try RecoveryAdapter.hash(url) == entry.sha256
+          else { throw GuideError.stopped("Backup image is missing or has changed") }
+        }
+        guard
+          s.stagedROMHash
+            == profile.artifacts.first(where: { $0.name.hasPrefix("lineage-") })?.sha256
+        else { throw GuideError.stopped("Device-side ROM staging has not been verified") }
+      }
+      let digest = Self.digest(s)
+      let req = ApprovalRequest(
+        id: UUID(), action: action, device: d, createdAt: Date(), sessionID: s.id,
+        prerequisitesDigest: digest)
+      s.pendingApproval = req
+      return req
+    }
+    DistributedNotificationCenter.default().postNotificationName(
+      Notification.Name("org.echoguide.approvalRequested"), object: nil)
+    return request
+  }
+  // Approval records are intentionally not exposed as CLI or MCP methods.
+  public func approve(requestID: UUID) throws {
+    try store.transaction { s in
+      guard let req = s.pendingApproval, req.id == requestID, req.sessionID == s.id,
+        req.device == s.device, Date().timeIntervalSince(req.createdAt) < 300,
+        req.prerequisitesDigest == Self.digest(s)
+      else { throw GuideError.stopped("Approval expired or prerequisites changed") }
+      // Live writing remains unavailable until fresh-host and independent-device pilot gates pass.
+      throw GuideError.stopped(
+        "Experimental device-writing dispatcher is not released. No device command was sent.")
+    }
+  }
+  public func rejectApproval(requestID: UUID) throws {
+    try store.transaction { s in
+      guard s.pendingApproval?.id == requestID else {
+        throw GuideError.stopped("Approval request is stale")
+      }
+      s.pendingApproval = nil
+    }
+  }
+  public func confirmStartup() throws {
+    try store.transaction { s in
+      guard s.phase == .installed else {
+        throw GuideError.stopped("Successful installation has not been verified")
+      }
+      s.startupConfirmed = true
+      s.phase = .finished
+    }
+  }
+  private static func digest(_ s: SessionRecord) -> String {
+    let text = [
+      s.id.uuidString, s.profileID, s.device?.serial ?? "", s.device?.product ?? "",
+      s.device?.lkBuild ?? "", s.phase.rawValue, s.backupManifest ?? "", s.stagedROMHash ?? "",
+    ].joined(separator: "|")
+    return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+  }
+}
+
+extension WorkflowEngine {
+  private func operation<T: Sendable>(_ action: String, _ body: @Sendable () async throws -> T)
+    async throws -> T
+  {
+    let fd = open(store.root.appendingPathComponent("active.lock").path, O_CREAT | O_RDWR, 0o600)
+    guard fd >= 0 else { throw GuideError.stopped("Cannot acquire operation lock") }
+    defer { close(fd) }
+    guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+      throw GuideError.stopped("Another operation is active")
+    }
+    defer { flock(fd, LOCK_UN) }
+    let id = UUID()
+    try store.transaction { s in
+      guard s.operations.allSatisfy({ $0.completedAt != nil }) else {
+        throw GuideError.stopped("An interrupted operation requires inspection")
+      }
+      s.operations.append(OperationRecord(id: id, action: action, startedAt: Date()))
+    }
+    do {
+      let result = try await body()
+      try store.transaction { s in
+        if let i = s.operations.firstIndex(where: { $0.id == id }) {
+          s.operations[i].completedAt = Date()
+          s.operations[i].result = "completed"
+        }
+      }
+      return result
+    } catch {
+      try? store.transaction { s in
+        s.phase = .inspectionRequired
+        if let i = s.operations.firstIndex(where: { $0.id == id }) {
+          s.operations[i].completedAt = Date()
+          s.operations[i].result = "failed; inspection required"
+        }
+      }
+      throw error
+    }
+  }
+  public func prepareWorkspace(utm: URL, iso: URL) async throws -> UUID {
+    let host = try await inspect()
+    guard host.writingBackendSupported else { throw GuideError.stopped("Unsupported host backend") }
+    guard
+      let artifact = profile.artifacts.first(where: { $0.name == "debian-13.7.0-arm64-netinst.iso" }
+      ), try RecoveryAdapter.hash(iso) == artifact.sha256
+    else { throw GuideError.stopped("Pinned Debian ISO missing or mismatched") }
+    return try await operation("prepare_workspace") {
+      guard try self.status().vmID == nil else {
+        throw GuideError.stopped("Workspace exists; inspect it rather than creating a duplicate")
+      }
+      let spec = OwnedVMSpecification()
+      let intent = self.store.root.appendingPathComponent("workspace-intent.json")
+      guard !FileManager.default.fileExists(atPath: intent.path) else {
+        throw GuideError.stopped(
+          "Previous workspace creation may be incomplete; reconcile ownership before retrying")
+      }
+      try JSONEncoder().encode(spec).write(to: intent, options: .atomic)
+      let id: UUID
+      do {
+        id = try await UTMAdapter(runner: ProcessRunner(), application: utm).create(
+          specification: spec, verifiedISO: iso)
+      } catch GuideError.stopped(let reason)
+        where reason == "Automation permission denied before VM creation"
+      {
+        try FileManager.default.removeItem(at: intent)
+        throw GuideError.stopped(
+          reason + ". Enable UTM Automation permission, then explicitly retry.")
+      }
+
+      try self.store.transaction {
+        $0.vmID = id.uuidString
+        $0.phase = .workspace
+      }
+      return id
+    }
+  }
+  public func verifyRecovery(adb: URL, serial: String) async throws {
+    try await operation("verify_recovery") {
+      let adapter = try RecoveryAdapter(runner: ProcessRunner(), adbPath: adb.path, serial: serial)
+      try await adapter.verify()
+      try self.store.transaction { s in
+        if let old = s.device, old.serial != serial {
+          s.backupManifest = nil
+          s.pendingApproval = nil
+        }
+        // Recovery proves CHECKERS/TWRP, not LK. Do not invent a bootloader result.
+        s.adbPath = adb.path
+        s.device = DeviceIdentity(
+          serial: serial, product: self.profile.product,
+          lkBuild: s.device?.serial == serial ? s.device!.lkBuild : "not verified in recovery",
+          recoveryVersion: self.profile.recoveryVersion)
+        s.phase = .recovery
+      }
+    }
+  }
+  public func backup(adb: URL, destination: URL) async throws -> [VerifiedPartitionBackup] {
+    try await operation("backup") {
+      let state = try self.status()
+      guard state.phase == .recovery, let device = state.device else {
+        throw GuideError.stopped("Compatible recovery has not been verified")
+      }
+      let adapter = try RecoveryAdapter(
+        runner: ProcessRunner(), adbPath: adb.path, serial: device.serial)
+      let results = try await adapter.backup(to: destination)
+      try self.store.transaction {
+        $0.backupDestination = destination.path
+        $0.adbPath = adb.path
+        $0.backupManifest = destination.appendingPathComponent("verified-backups.json").path
+        $0.phase = .backedUp
+      }
+      return results
+    }
+  }
+}
+
+extension WorkflowEngine {
+  public func verifyConfiguredRecovery() async throws {
+    let s = try status()
+    guard let adb = s.adbPath, let d = s.device else {
+      throw GuideError.stopped("Select ADB and the recovery device in the native app first")
+    }
+    try await verifyRecovery(adb: URL(fileURLWithPath: adb), serial: d.serial)
+  }
+  public func backupConfigured() async throws -> [VerifiedPartitionBackup] {
+    let s = try status()
+    guard let adb = s.adbPath, let folder = s.backupDestination else {
+      throw GuideError.stopped("Choose the backup destination and ADB in the native app first")
+    }
+    return try await backup(
+      adb: URL(fileURLWithPath: adb), destination: URL(fileURLWithPath: folder))
+  }
+}
