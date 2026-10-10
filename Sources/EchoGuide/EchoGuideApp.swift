@@ -51,6 +51,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   @State private var guestPassword = ""
   @State private var backupProgress: BackupProgress?
   @State private var activeBackupID: UUID?
+  @State private var poweredWait: PoweredWaitStatus?
+  @State private var poweredWaitUnreadable = false
   @State private var startupPersonallyObserved = false
   @State private var startupAlreadyRecorded = false
   @State private var postInstallEnabled = false
@@ -69,6 +71,21 @@ private enum GuideStep: String, CaseIterable, Identifiable {
           Text(step.rawValue).font(.largeTitle.bold())
           Text("First-generation Echo Show 5 · CHECKERS · Apple Silicon")
             .foregroundStyle(.secondary)
+          if poweredWaitUnreadable {
+            Label("Powered-wait evidence cannot be read. Keep wall power connected and inspect before any further attempt.", systemImage: "exclamationmark.triangle.fill")
+              .foregroundStyle(.orange)
+          } else if let wait = poweredWait {
+            GroupBox("Powered wait safety status") {
+              VStack(alignment: .leading, spacing: 8) {
+                Label(wait.guidance, systemImage: "powerplug.fill").foregroundStyle(.orange)
+                Text("Recorded wait: \(wait.elapsedSeconds) of \(wait.requiredSeconds) seconds. Completion does not prove an unlock; recovery must be independently verified.")
+                if !wait.complete {
+                  Text("Do not disconnect wall power or start another attempt. An interrupted wait requires inspection.").font(.callout.bold())
+                }
+                Button("Refresh powered wait status") { refreshPoweredWait() }
+              }.padding(8)
+            }
+          }
           stageContent
           if pendingApproval != nil {
             Button("Review pending native approval…") { reviewPendingApproval() }
@@ -504,6 +521,18 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       startupAlreadyRecorded = record.startupConfirmed
       postInstallOutcomes = Dictionary((record.postInstallObservations ?? []).map { ($0.check, $0.outcome) }, uniquingKeysWith: { _, newest in newest })
     } catch { status = "Session check stopped: \(error.localizedDescription)" }
+    refreshPoweredWait()
+  }
+
+  private func refreshPoweredWait() {
+    guard let engine else { return }
+    do {
+      poweredWait = try engine.poweredWaitStatus()
+      poweredWaitUnreadable = false
+    } catch {
+      poweredWait = nil
+      poweredWaitUnreadable = true
+    }
   }
 
   private func inspect() {

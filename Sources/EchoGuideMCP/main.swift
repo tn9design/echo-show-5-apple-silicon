@@ -72,7 +72,7 @@ import Foundation
             }
             guard
               [
-                "inspect", "prepare_downloads", "status", "verify_recovery", "backup", "request_unlock",
+                "inspect", "prepare_downloads", "status", "powered_wait_status", "verify_recovery", "backup", "request_unlock",
                 "request_install", "report",
               ].contains(name)
             else {
@@ -94,6 +94,7 @@ import Foundation
             case "inspect": data = try encoder.encode(try await activeEngine.inspect())
             case "prepare_downloads": data = try encoder.encode(try activeEngine.startPublisherDownloads())
             case "status": data = try encoder.encode(try activeEngine.status())
+            case "powered_wait_status": data = try encoder.encode(try activeEngine.poweredWaitStatus())
             case "verify_recovery":
               try await activeEngine.verifyConfiguredRecovery()
               data = try encoder.encode(try activeEngine.status())
@@ -134,6 +135,7 @@ import Foundation
       ("inspect", "Inspect host readiness; does not unlock or install."),
       ("prepare_downloads", "Start pinned publisher downloads in the private app-owned directory. Returns operation ID; poll status.downloadProgress. Downloads only, never Linux workspace readiness."),
       ("status", "Read the private local session and pending operation."),
+      ("powered_wait_status", "Read saved powered-wait evidence and safety guidance, without request IDs or paths. Incomplete means keep wall power connected and inspect; never retry automatically. Completion does not prove unlock success."),
       (
         "verify_recovery",
         "Verify recovery using only the native app-selected device and ADB executable."

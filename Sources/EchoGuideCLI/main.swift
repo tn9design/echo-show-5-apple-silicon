@@ -40,6 +40,7 @@ import Foundation
       case "inspect": try emit(try await engine.inspect())
             case "prepare-downloads": try emit(try await engine.prepareOwnedDownloads())
       case "status": try emit(try engine.status())
+      case "powered-wait-status": try emit(try engine.poweredWaitStatus())
       case "verify-recovery":
         try await engine.verifyConfiguredRecovery()
         try emit(try engine.status())
@@ -63,7 +64,7 @@ import Foundation
   enum CLIError: Error, CustomStringConvertible {
     case usage
     var description: String {
-      "Usage: echo-guide [--state-root DIRECTORY] inspect|prepare-downloads|status|verify-recovery|backup|request-unlock|request-install|report; or prepare-workspace UTM_APPLICATION DEBIAN_ISO; or reconcile-workspace|start-workspace|stop-workspace UTM_APPLICATION. Workspace creation uses only the pinned profile and creates an isolated owned VM. Echo write requests require native app approval; they do not execute a write."
+      "Usage: echo-guide [--state-root DIRECTORY] inspect|prepare-downloads|status|powered-wait-status|verify-recovery|backup|request-unlock|request-install|report; or prepare-workspace UTM_APPLICATION DEBIAN_ISO; or reconcile-workspace|start-workspace|stop-workspace UTM_APPLICATION. Workspace creation uses only the pinned profile and creates an isolated owned VM. Echo write requests require native app approval; they do not execute a write."
     }
   }
 }

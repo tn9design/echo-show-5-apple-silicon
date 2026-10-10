@@ -31,6 +31,7 @@ Both client configurations are examples and are **not yet client-integration tes
 | `inspect` | Inspect Mac readiness |
 | `prepare_downloads` | Start pinned publisher downloads in the private app-owned directory; return operation ID |
 | `status` | Read the private local session |
+| `powered_wait_status` | Read saved waiting-period safety guidance without private IDs or paths |
 | `verify_recovery` | Verify compatible recovery using app-selected ADB and device |
 | `backup` | Start verified backup capture and return its persistent operation ID |
 | `request_unlock` | Create a pending native approval request |
@@ -49,3 +50,6 @@ The CLI supports `inspect`, `status`, `verify-recovery`, `backup`, `request-unlo
 `prepare_downloads` takes no arguments and uses the bundled profile's publishers, sizes, and SHA-256 values. It saves under the private session's `downloads` directory. Poll `status.downloadProgress` and the matching operation record; transferred bytes are not verified-file proof. A failed or cancelled operation is not a prepared VM. Existing verified files can be reused during an explicit retry; mismatching files are preserved and rejected. Graceful stdio EOF waits for both backups and publisher downloads, while forced termination leaves an incomplete intent requiring inspection.
 
 The CLI command `echo-guide prepare-downloads` waits for the same preparation result. No caller can supply publisher URLs, artifacts, or a destination through MCP. App folder selection remains a separate user-controlled download workflow using the same core verifier.
+
+
+Use `powered_wait_status` (CLI: `powered-wait-status`) to inspect saved waiting-period evidence. It takes no arguments, performs no device or payload operations, and returns null when there is no saved record. An incomplete record means keep wall power connected and inspect before proceeding; it never authorizes another attempt or restarts a timer. A completed recorded wait does not prove the Echo stayed powered or that unlocking succeeded. Independently verify compatible recovery. Invalid evidence fails closed with keep-power guidance. The native app displays this safety state outside technical session details after refresh.
