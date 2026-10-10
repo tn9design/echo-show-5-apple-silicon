@@ -23,4 +23,4 @@ Start with documentation corrections, offline tests and read-only device checks.
 
 This project credits amonet developers k4y0z and R0rt1z2, the amazon-oss ROM maintainers, UTM and Debian. It wraps their work; it does not claim authorship of their exploit or ROM.
 
-Local repository only for now. A project name, license and publication destination remain to be chosen before public release.
+Published as an experimental starter kit. VM creation, first USB assignment and partition backups remain manual; the app currently automates preflight checks and verified UTM/ROM downloads. See the walkthrough before using it. No license has been selected yet.
