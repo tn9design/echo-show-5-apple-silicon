@@ -91,3 +91,49 @@ final class PublisherOperationTests: XCTestCase {
     XCTAssertTrue(try engine.status().operations.isEmpty)
   }
 }
+
+private actor CancellablePublisherFixture: DownloadTransport {
+  let root: URL
+  var calls = 0
+  init(root: URL) { self.root = root }
+  func count() -> Int { calls }
+  func download(from url: URL, progress: (@Sendable (Int64, Int64?) -> Void)?) async throws -> (URL, URLResponse) {
+    calls += 1
+    if calls > 1 { try await Task.sleep(for: .seconds(30)) }
+    let file = root.appendingPathComponent(UUID().uuidString)
+    try Data([1]).write(to: file)
+    return (file, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+  }
+}
+extension PublisherOperationTests {
+  func testScopedCancellationRetainsVerifiedFileAndReleasesOwnership() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let engine = try WorkflowEngine(root: root)
+    let fixture = CancellablePublisherFixture(root: root)
+    let hash = "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a"
+    let artifacts = ["first.zip", "second.zip"].map { DownloadArtifact(name: $0, url: URL(string: "https://fixture.invalid/" + $0)!, sha256: hash, size: 1) }
+    let folder = root.appendingPathComponent("chosen")
+    let job = try engine.startPublisherDownloads(artifacts: artifacts, destination: folder, transport: fixture)
+    for _ in 0..<100 {
+      if await fixture.count() == 2 { break }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    let calls = await fixture.count()
+    XCTAssertEqual(calls, 2)
+    let unrelated = try WorkflowEngine(root: root.appendingPathComponent("other-session"))
+    XCTAssertFalse(unrelated.cancelPublisherDownloads(operationID: job.id))
+    XCTAssertFalse(engine.cancelPublisherDownloads(operationID: UUID()))
+    XCTAssertNil(try engine.status().operations.last?.completedAt)
+    XCTAssertTrue(engine.cancelPublisherDownloads(operationID: job.id))
+    do { try await engine.waitForPublisherDownloads(operationID: job.id); XCTFail("Cancelled job succeeded") } catch {}
+    XCTAssertEqual(try engine.status().downloadProgress?.stage, "cancelled")
+    XCTAssertEqual(try engine.status().downloadProgress?.verifiedFiles, 1)
+    XCTAssertEqual(try Data(contentsOf: folder.appendingPathComponent("first.zip")), Data([1]))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: folder.appendingPathComponent("second.zip").path))
+    XCTAssertFalse(engine.cancelPublisherDownloads(operationID: job.id))
+    let next = try engine.startPublisherDownloads(artifacts: [], destination: folder, transport: fixture)
+    try await engine.waitForPublisherDownloads(operationID: next.id)
+    XCTAssertEqual(try engine.status().operations.last?.result, "completed")
+  }
+}

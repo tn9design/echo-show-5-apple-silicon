@@ -68,7 +68,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   @State private var busy = false
   @State private var operation = ""
   @State private var downloadTask: Task<Void, Never>?
-  @State private var activeDownload: String?
+  @State private var activeDownloadID: UUID?
   @State private var pendingApproval: ApprovalRequest?
   @State private var adbURL: URL?
   @State private var deviceSerial = ""
@@ -153,7 +153,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
               ProgressView(operation)
             }
             if downloadTask != nil {
-              Button("Cancel downloads") { downloadTask?.cancel() }
+              Button("Cancel downloads") { if let activeDownloadID { engine?.cancelPublisherDownloads(operationID: activeDownloadID) } }
             }
           }
           Divider()
@@ -201,7 +201,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       .font(.callout).foregroundStyle(.secondary)
     case .prepare:
       Text(
-        "Download the pinned UTM and CHECKERS ROM directly from their publishers. SHA-256 verification completes before a file is considered usable. No files are installed or executed."
+        "Download the pinned UTM, Debian installer, and CHECKERS ROM directly from their publishers. SHA-256 verification completes before a file is considered usable. No files are installed or executed."
       )
       GroupBox("Download progress") { selectable(files) }
       Button("Choose folder and prepare downloads…") { prepareDownloads() }.disabled(busy)
@@ -842,51 +842,33 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   }
 
   private func prepareDownloads() {
+    guard let engine else { return }
     let panel = NSOpenPanel()
-    panel.canChooseDirectories = true
-    panel.canChooseFiles = false
-    panel.canCreateDirectories = true
-    panel.message =
-      "Choose where to save verified UTM and ROM downloads (about 790 MB). Nothing will be installed."
+    panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
+    panel.message = "Choose where to save pinned UTM, Debian ARM64 ISO, and CHECKERS ROM downloads (about 1.5 GB). The shared engine verifies every file; no software is installed."
     guard panel.runModal() == .OK, let folder = panel.url else { return }
-    busy = true
-    operation = "Preparing publisher downloads…"
-    downloadTask = Task {
-      var completed: [String] = []
-      do {
-        let profile = try CompatibilityProfile.bundled()
-        let artifacts = try profile.publisherDownloads()
-        for artifact in artifacts {
-          try Task.checkCancellation()
-          activeDownload = artifact.name
-          files = (completed + ["Downloading or verifying \(artifact.name)…"]).joined(
-            separator: "\n")
-          let completedSoFar = completed
-          completed.append(
-            try await prepareArtifact(artifact, in: folder) { received, total in
-              Task { @MainActor in
-                guard activeDownload == artifact.name else { return }
-                let measured =
-                  "\(received.formatted()) bytes received"
-                  + (total.map { " of \($0.formatted())" } ?? "")
-                files = (completedSoFar + ["Downloading \(artifact.name): \(measured)"]).joined(
-                  separator: "\n")
-              }
-            })
-          activeDownload = nil
+    do {
+      let job = try engine.startPublisherDownloads(in: folder)
+      activeDownloadID = job.id
+      busy = true; operation = "Preparing publisher downloads…"
+      downloadTask = Task {
+        defer { downloadTask = nil; activeDownloadID = nil; busy = false; refresh() }
+        do {
+          while true {
+            let state = try engine.status()
+            guard let current = state.operations.first(where: { $0.id == job.id }) else { throw GuideError.stopped("Download operation disappeared; inspect the session") }
+            if let progress = state.downloadProgress {
+              files = "\(progress.artifact ?? "Publisher preparation") · \(progress.stage)\n\(progress.receivedBytes.formatted()) bytes received" + (progress.expectedBytes.map { " of \($0.formatted())" } ?? "") + "\nVerified files: \(progress.verifiedFiles)"
+            }
+            if current.completedAt != nil { break }
+            try await Task.sleep(for: .milliseconds(200))
+          }
+          try await engine.waitForPublisherDownloads(operationID: job.id)
+          files += "\nVerified downloads ready. The Linux workspace still needs preparation."
+        } catch {
+          files += "\nStopped: \(error.localizedDescription). Previously verified files were retained; no workspace readiness was established."
         }
-        files =
-          (completed + ["Verified downloads ready. The Linux workspace still needs preparation."])
-          .joined(separator: "\n")
-      } catch is CancellationError {
-        files = (completed + ["Cancelled. Completed verified downloads were retained."]).joined(
-          separator: "\n")
-      } catch {
-        files = (completed + ["Stopped: \(error.localizedDescription)"]).joined(separator: "\n")
       }
-      downloadTask = nil
-      activeDownload = nil
-      busy = false
-    }
+    } catch { files = "Preparation stopped: \(error.localizedDescription)" }
   }
 }

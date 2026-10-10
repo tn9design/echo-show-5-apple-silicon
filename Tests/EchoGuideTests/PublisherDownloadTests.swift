@@ -66,6 +66,11 @@ final class PublisherDownloadTests: XCTestCase {
         let profile = try CompatibilityProfile.bundled()
         let downloads = try profile.publisherDownloads()
         XCTAssertEqual(Set(downloads.map(\.name)), Set(profile.artifacts.filter { $0.publisherURL != nil }.map(\.name)))
+        XCTAssertEqual(downloads.count, 3)
+        let iso = try XCTUnwrap(downloads.first { $0.name == "debian-13.7.0-arm64-netinst.iso" })
+        XCTAssertEqual(iso.url.absoluteString, "https://cdimage.debian.org/debian-cd/13.7.0/arm64/iso-cd/debian-13.7.0-arm64-netinst.iso")
+        XCTAssertEqual(iso.size, 735358976)
+        XCTAssertEqual(iso.sha256, "6e93fa1759bd9d4b0fc11e938987de6967ee7de5297dac1be27c3a75cc17024b")
         XCTAssertTrue(downloads.allSatisfy { $0.url.scheme == "https" && $0.sha256.count == 64 })
     }
 }

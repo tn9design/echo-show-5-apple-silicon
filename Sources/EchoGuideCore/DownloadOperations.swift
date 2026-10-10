@@ -18,6 +18,7 @@ private final class PublisherJob: @unchecked Sendable {
   func attach(_ task: Task<Void, Never>) { lock.withLock { self.task = task } }
   func begin() { registered.signal() }
   func awaitRegistration() { registered.wait() }
+  func cancel() -> Bool { lock.withLock { guard !finished, let task else { return false }; task.cancel(); return true } }
   func completed() { lock.withLock { finished = true } }
   var isFinished: Bool { lock.withLock { finished } }
   func failed(_ message: String) { lock.withLock { failure = message } }
@@ -34,6 +35,10 @@ private final class PublisherTasks: @unchecked Sendable {
   private var latest: [String: UUID] = [:]
   func register(_ job: PublisherJob, key: String, operationID: UUID) {
     lock.withLock { jobs[key, default: [:]][operationID] = job; latest[key] = operationID }
+  }
+  func cancel(_ key: String, operationID: UUID) -> Bool {
+    let job = lock.withLock { jobs[key]?[operationID] }
+    return job?.cancel() ?? false
   }
   func wait(_ key: String, operationID: UUID?) async throws {
     let captured: [PublisherJob] = try lock.withLock {
@@ -57,10 +62,15 @@ extension WorkflowEngine {
   /// Publisher URLs and artifacts are chosen exclusively from the bundled profile.
   /// This prepares files only. It never creates, starts, or validates a Linux VM.
   public func startPublisherDownloads(
+    in destination: URL? = nil,
     transport: any DownloadTransport = PublisherDownloadTransport()
   ) throws -> OperationRecord {
-    let artifacts = try profile.publisherDownloads()
-    let folder = store.root.appendingPathComponent("downloads", isDirectory: true)
+    try startPublisherDownloads(artifacts: profile.publisherDownloads(), destination: destination, transport: transport)
+  }
+  // Internal fixture seam; public callers cannot choose artifacts or publishers.
+  func startPublisherDownloads(artifacts: [DownloadArtifact], destination: URL? = nil,
+                               transport: any DownloadTransport) throws -> OperationRecord {
+    let folder = destination ?? store.root.appendingPathComponent("downloads", isDirectory: true)
     let attrs = try? FileManager.default.attributesOfItem(atPath: folder.path)
     if let type = attrs?[.type] as? FileAttributeType {
       guard type == .typeDirectory else { throw PreparationError.unsafeArtifact }
@@ -132,6 +142,11 @@ extension WorkflowEngine {
     PublisherTasks.shared.register(job, key: key, operationID: operation.id)
     job.begin()
     return operation
+  }
+  /// Cancels only a publisher job owned by this process and exact session/ID.
+  /// Does not affect backup/device operations or jobs owned by another process.
+  @discardableResult public func cancelPublisherDownloads(operationID: UUID) -> Bool {
+    PublisherTasks.shared.cancel(store.root.standardizedFileURL.path, operationID: operationID)
   }
   public func waitForPublisherDownloads(operationID: UUID? = nil) async throws {
     try await PublisherTasks.shared.wait(store.root.standardizedFileURL.path, operationID: operationID)
