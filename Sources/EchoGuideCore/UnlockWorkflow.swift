@@ -1,8 +1,8 @@
 import Foundation
 import Darwin
 
-/// No live transport is provided. A future audited guest adapter must verify
-/// artifact bytes and authenticated guest readiness before returning this evidence.
+/// The internal guest adapter verifies artifact bytes and authenticated guest
+/// readiness. No public live dispatcher is connected to that adapter.
 struct UnlockValidation: Sendable {
   let vmID: UUID
   let hostKeyFingerprint: String

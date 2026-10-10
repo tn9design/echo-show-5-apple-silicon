@@ -22,7 +22,7 @@ command = "/absolute/path/echo-guide-mcp"
 args = []
 ```
 
-Both client configurations are examples and are **not yet client-integration tested**. Do not replace unrelated configuration. Other clients need the same executable, no arguments, and newline-framed stdio JSON-RPC. The packaged `skills/echo-guide` folder can be copied to a client's skill directory when supported; the Markdown is portable guidance for other assistants.
+Codex v0.162.0-alpha.17.2 passed a narrow integration smoke test on the development Mac using ephemeral configuration, only `powered_wait_status` enabled, and a read-only sandbox. The tool returned a valid result; no backup or installation was tested through that client. The persistent Codex configuration above and Claude Desktop configuration remain untested examples. Do not replace unrelated configuration. Other clients need the same executable, no arguments, and newline-framed stdio JSON-RPC. The packaged `skills/echo-guide` folder can be copied to a client's skill directory when supported; the Markdown is portable guidance for other assistants.
 
 ## Tools and limits
 
@@ -44,7 +44,7 @@ After `backup` returns, poll `status` for that operation ID and `backupProgress`
 
 Preview releases do not imply that a pending request executes an unlock or installation. Consult the release's prototype-status document for implemented and experimentally validated operations. The server supports MCP initialization, tool listing/calling, and ping; it does not implement arbitrary filesystem resources or prompts.
 
-The CLI supports `inspect`, `status`, `verify-recovery`, `backup`, `request-unlock`, `request-install`, and `report`. Its optional `--state-root DIRECTORY` is a manual development configuration, not an MCP input. Never share raw `status` output: use `report` and review it first.
+The CLI supports `inspect`, `status`, `verify-recovery`, `backup`, `request-unlock`, `request-install`, and `report`. The native app also provides a local pinned-ROM chooser and a separate copy-and-device-hash-verification action after verified backups. Neither exposes caller-selected paths through MCP. Its optional `--state-root DIRECTORY` is a manual development configuration, not an MCP input. Never share raw `status` output: use `report` and review it first.
 
 
 `prepare_downloads` takes no arguments and uses the bundled profile's publishers, sizes, and SHA-256 values. It saves under the private session's `downloads` directory. Poll `status.downloadProgress` and the matching operation record; transferred bytes are not verified-file proof. A failed or cancelled operation is not a prepared VM. Existing verified files can be reused during an explicit retry; mismatching files are preserved and rejected. Graceful stdio EOF waits for both backups and publisher downloads, while forced termination leaves an incomplete intent requiring inspection.

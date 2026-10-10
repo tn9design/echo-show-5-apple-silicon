@@ -122,7 +122,7 @@ public struct GuestAdapter: Sendable {
       .replacingOccurrences(of: "%", with: "%%")
     return name + "=\"" + escaped + "\""
   }
-  private func arguments(command: String) throws -> [String] {
+  func arguments(command: String) throws -> [String] {
     let key = credentialsDirectory.appendingPathComponent(clientName)
     let knownHosts = credentialsDirectory.appendingPathComponent("known_hosts")
     guard FileManager.default.fileExists(atPath: key.path),

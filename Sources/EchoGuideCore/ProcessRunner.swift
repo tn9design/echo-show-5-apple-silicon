@@ -1,11 +1,16 @@
 import Foundation
 
-public struct ProcessRunner: BinaryCommandRunning {
+public struct ProcessRunner: BinaryCommandRunning, TimedCommandRunning {
   public init() {}
   public func run(executable: String, arguments: [String]) async throws -> CommandResult {
     let task = Task.detached { try Self.execute(executable, arguments, nil) }
     return try await withTaskCancellationHandler(
       operation: { try await task.value }, onCancel: { task.cancel() })
+  }
+  func run(executable: String, arguments: [String], timeoutSeconds: Int) async throws -> CommandResult {
+    guard timeoutSeconds > 0 && timeoutSeconds <= 1800 else { throw GuideError.stopped("Invalid command deadline") }
+    let task = Task.detached { try Self.execute(executable, arguments, nil, timeoutSeconds) }
+    return try await withTaskCancellationHandler(operation: { try await task.value }, onCancel: { task.cancel() })
   }
   public func runToFile(executable: String, arguments: [String], destination: URL) async throws
     -> CommandResult
@@ -14,7 +19,7 @@ public struct ProcessRunner: BinaryCommandRunning {
     return try await withTaskCancellationHandler(
       operation: { try await task.value }, onCancel: { task.cancel() })
   }
-  private static func execute(_ executable: String, _ arguments: [String], _ destination: URL?)
+  private static func execute(_ executable: String, _ arguments: [String], _ destination: URL?, _ timeoutSeconds: Int? = nil)
     throws -> CommandResult
   {
     guard executable.hasPrefix("/") else {
@@ -43,9 +48,9 @@ public struct ProcessRunner: BinaryCommandRunning {
     p.standardOutput = stdout
     p.standardError = stderr
     try p.run()
-    let deadline = Date().addingTimeInterval(
-      destination == nil ? (arguments.contains("sha256sum") ? 1800 : 300) : 1800)
-    while p.isRunning && Date() < deadline && !Task.isCancelled {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(timeoutSeconds ?? (destination == nil ? (arguments.contains("sha256sum") ? 1800 : 300) : 1800)))
+    while p.isRunning && clock.now < deadline && !Task.isCancelled {
       Thread.sleep(forTimeInterval: 0.05)
     }
     if p.isRunning {

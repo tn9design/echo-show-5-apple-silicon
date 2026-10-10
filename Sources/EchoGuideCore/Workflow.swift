@@ -95,6 +95,7 @@ public struct SessionRecord: Codable, Sendable {
   public var vmID: String?
   public var adbPath: String?
   public var backupDestination: String?
+  public var configuredROMPath: String?
   public var stagedROMHash: String?
   public var pendingApproval: ApprovalRequest?
   public var operations: [OperationRecord] = []
@@ -236,7 +237,7 @@ public final class WorkflowEngine: @unchecked Sendable {
         } else if $0.result == "creation reconciled by exact ownership marker and VM UUID" {
           outcome = "creation reconciled"
         } else { outcome = "finished; outcome unknown" }
-        let allowedActions: Set<String> = ["prepare_downloads", "prepare_workspace", "reconcile_workspace", "start_workspace", "stop_workspace", "bootstrap_guest", "validate_guest", "verify_recovery", "backup", "stage_rom", "consume_native_approval", "unlock", "install"]
+        let allowedActions: Set<String> = ["prepare_downloads", "prepare_workspace", "reconcile_workspace", "start_workspace", "stop_workspace", "bootstrap_guest", "validate_guest", "verify_recovery", "backup", "configure_rom", "stage_rom", "consume_native_approval", "unlock", "install"]
         let action = allowedActions.contains($0.action) ? $0.action : "unknown_operation"
         return action + ": " + outcome
       }, experimental: true,

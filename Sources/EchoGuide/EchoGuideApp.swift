@@ -56,6 +56,9 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   @State private var startupPersonallyObserved = false
   @State private var startupAlreadyRecorded = false
   @State private var postInstallEnabled = false
+  @State private var romConfigured = false
+  @State private var backedUpForStaging = false
+  @State private var installationReady = false
   @State private var postInstallOutcomes: [PostInstallCheck: PostInstallOutcome] = [:]
 
   var body: some View {
@@ -114,7 +117,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
           }
           Divider()
           Text(
-            "Experimental source preview. Preparation, recovery inspection, and verified backup adapters are available as pilot integration. Device writing is unavailable in this preview; a timeout never proves an unlock."
+            "Experimental source preview. Preparation, recovery inspection, verified backups, and verified ROM copying are available as pilot integration. Unlock, wipes, installation, and reboot are unavailable in this preview; a timeout never proves an unlock."
           )
           .font(.footnote).foregroundStyle(.secondary)
           DisclosureGroup("Private local session details") {
@@ -263,7 +266,19 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       HStack {
         Button("Request unlock approval…") { requestApproval(.unlock) }
         Button("Request installation approval…") { requestApproval(.install) }
+          .disabled(!installationReady)
       }.disabled(busy || engine == nil)
+      GroupBox("Prepare the pinned ROM after verified backups") {
+        VStack(alignment: .leading, spacing: 10) {
+          Text("Choose the publisher’s LineageOS 18.1 CHECKERS v0.7 ZIP. EchoGuide checks its exact size and hash before copying it to recovery.")
+          Button("Choose and verify pinned ROM…") { configureROM() }
+            .disabled(busy || engine == nil || !backedUpForStaging)
+          Button("Copy ROM and verify device hash") { stageROM() }
+            .disabled(busy || engine == nil || !backedUpForStaging || !romConfigured)
+          Text(installationReady ? "Pinned ROM verified on the device; native installation approval may be requested." : "Installation approval requires verified backups and a verified device-side ROM.")
+            .font(.caption).foregroundStyle(.secondary)
+        }.padding(8)
+      }
       GroupBox("After a verified installation") {
         VStack(alignment: .leading, spacing: 10) {
           Text(
@@ -516,12 +531,41 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       let record = try engine.status()
       session = try encoded(record)
       pendingApproval = record.pendingApproval
+      backedUpForStaging = record.phase == .backedUp && record.backupManifest != nil
+      romConfigured = record.configuredROMPath != nil
+      installationReady = backedUpForStaging && record.stagedROMHash == (try? engine.profile.artifact(named: "lineage-18.1-20260904-UNOFFICIAL-checkers.zip"))?.sha256
       postInstallEnabled = record.phase == .installed || record.phase == .finished
       startupPersonallyObserved = record.startupConfirmed
       startupAlreadyRecorded = record.startupConfirmed
       postInstallOutcomes = Dictionary((record.postInstallObservations ?? []).map { ($0.check, $0.outcome) }, uniquingKeysWith: { _, newest in newest })
     } catch { status = "Session check stopped: \(error.localizedDescription)" }
     refreshPoweredWait()
+  }
+
+  private func configureROM() {
+    guard let engine, let file = selectFile(message: "Select the publisher LineageOS 18.1 CHECKERS v0.7 ZIP. Its pinned size and SHA-256 will be verified.") else { return }
+    busy = true
+    operation = "Verifying the selected ROM against the pinned compatibility profile…"
+    Task {
+      defer { busy = false; refresh() }
+      do {
+        try await engine.configureROM(localROM: file)
+        status = "Pinned ROM verified locally. Copy and independently verify it on the device next."
+      } catch { status = "ROM selection stopped: \(error.localizedDescription)" }
+    }
+  }
+
+  private func stageROM() {
+    guard let engine else { return }
+    busy = true
+    operation = "Checking backups, copying the pinned ROM, and independently verifying the device hash…"
+    Task {
+      defer { busy = false; refresh() }
+      do {
+        let receipt = try await engine.stageConfiguredROM()
+        status = "Device-side ROM verified: \(receipt.bytes.formatted()) bytes; SHA-256 \(receipt.sha256). No wipe or installation has run."
+      } catch { status = "ROM staging stopped: \(error.localizedDescription). Installation prerequisites must be rechecked." }
+    }
   }
 
   private func refreshPoweredWait() {
@@ -592,7 +636,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       let action = request.action == .unlock
         ? "Attempt the reviewed bootloader unlock. Permanent device damage is possible. Keep wall power connected during the attempt and for five minutes afterward."
         : "Erase data, system, and cache, install the pinned LineageOS ROM, then reboot only after verified installation. Stock apps and settings are removed; verified backups remain private on your Mac."
-      alert.informativeText = "Device: \(request.device.product)\nSerial: \(request.device.serial)\nBootloader: \(request.device.lkBuild)\nRecovery: \(request.device.recoveryVersion ?? "not verified")\n\n\(action)\n\nApproval expires five minutes after \(request.createdAt.formatted(date: .omitted, time: .standard)). Changed device or prerequisites invalidate it.\nSession: \(request.sessionID.uuidString)\nEvidence fingerprint: \(request.prerequisitesDigest)\n\nDevice writing is disabled in this source preview; reviewing this request cannot enable it."
+      alert.informativeText = "Device: \(request.device.product)\nSerial: \(request.device.serial)\nBootloader: \(request.device.lkBuild)\nRecovery: \(request.device.recoveryVersion ?? "not verified")\n\n\(action)\n\nApproval expires five minutes after \(request.createdAt.formatted(date: .omitted, time: .standard)). Changed device or prerequisites invalidate it.\nSession: \(request.sessionID.uuidString)\nEvidence fingerprint: \(request.prerequisitesDigest)\n\nUnlock, wipes, installation, and reboot are disabled in this source preview; reviewing this request cannot enable them."
       alert.addButton(withTitle: "Cancel")
       alert.addButton(withTitle: "Approve this request")
       if alert.runModal() == .alertSecondButtonReturn {
