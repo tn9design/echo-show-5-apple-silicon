@@ -255,6 +255,10 @@ private enum GuideStep: String, CaseIterable, Identifiable {
             .font(.caption).foregroundStyle(.secondary)
           Button("Bootstrap owned guest SSH…") { bootstrapGuest() }
             .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
+          Button("Restart workspace and bootstrap SSH…") { bootstrapGuest(restartWorkspace: true) }
+            .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
+          Text("The restart action waits for graceful shutdown, starts this owned VM, then attempts login once. It never forces shutdown or retries a failed login.")
+            .font(.caption).foregroundStyle(.secondary)
           Button("Validate owned guest and original client…") { validateGuest() }
             .disabled(busy || engine == nil || !workspaceRegistered || !guestConsoleReady || guestPassword.isEmpty)
           Text("For validation, choose the original publisher fastboot binary. The app uses its bundled, hash-verified protocol helper and checks the binary’s pinned hash before an offline test; it does not contact the Echo.")
@@ -480,18 +484,18 @@ private enum GuideStep: String, CaseIterable, Identifiable {
 
   private enum WorkspaceAction { case reconcile, start, stop }
 
-  private func bootstrapGuest() {
+  private func bootstrapGuest(restartWorkspace: Bool = false) {
     guard guestConsoleReady, !guestPassword.isEmpty, let engine else { return }
     let password = guestPassword
     guestPassword = ""
     guard let utm = selectWorkspaceUTM(message: "Select verified UTM. The app logs into the owned Debian serial console as the selected Linux account and installs the workspace public SSH key.") else { return }
     busy = true
-    operation = "Acquiring guest trust through the owned serial channel…"
+    operation = restartWorkspace ? "Restarting the owned workspace, then acquiring guest trust…" : "Acquiring guest trust through the owned serial channel…"
     guestConsoleReady = false
     Task {
       do {
         try engine.configureGuestUsername(guestUsername)
-        let evidence = try await engine.bootstrapOwnedGuest(utm: utm, password: password)
+        let evidence = try await engine.bootstrapOwnedGuest(utm: utm, password: password, restartWorkspace: restartWorkspace)
         status = "Guest host trust acquired through the owned serial channel.\nOwned VM: \(evidence.trust.ownedVMID.uuidString)\nGuest address (private): \(evidence.address)\nWorkspace public SSH key authorized: \(evidence.clientAuthorized ? "yes" : "no")\nTranslation, original client, and USB readiness are not yet verified."
       } catch { status = "Guest bootstrap stopped: \(error.localizedDescription). Inspect the owned serial console before retrying; interrupted key setup is not replayed automatically." }
       refresh()

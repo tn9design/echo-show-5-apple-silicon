@@ -11,10 +11,14 @@ public struct GuestWorkspaceRecord: Codable, Sendable {
 extension WorkflowEngine {
   /// Explicit action using a memory-only password or an already authenticated serial shell.
   /// Acquires trust through serial before any SSH operation; never accepts a caller's host key.
-  public func bootstrapOwnedGuest(utm: URL, password: String? = nil) async throws
+  public func bootstrapOwnedGuest(utm: URL, password: String? = nil, restartWorkspace: Bool = false) async throws
     -> GuestBootstrapEvidence
   {
-    try await operation("bootstrap_guest") {
+    if restartWorkspace {
+      guard let password else { throw GuideError.stopped("Enter the guest password before restart/bootstrap") }
+      try SerialLogin.validatePassword(password)
+    }
+    return try await operation("bootstrap_guest") {
       let state = try self.status()
       guard let text = state.vmID, let id = UUID(uuidString: text) else {
         throw GuideError.stopped("No registered app-owned workspace")
@@ -24,6 +28,14 @@ extension WorkflowEngine {
         from: Data(contentsOf: self.store.root.appendingPathComponent("workspace-intent.json")))
       let username = try GuestUsername.validated(state.guestUsername ?? "user")
       let adapter = UTMAdapter(runner: self.runner, application: utm)
+      if restartWorkspace {
+        guard state.device == nil, state.pendingApproval == nil,
+          !FileManager.default.fileExists(atPath: self.store.root.appendingPathComponent("guest-" + id.uuidString).path) else {
+          throw GuideError.stopped("Existing guest credentials or device state require inspection before restart/bootstrap")
+        }
+        try self.store.transaction { $0.guest?.ready = false }
+        try await GuestWorkspaceRestart.run(adapter: adapter, specification: specification, vmID: id)
+      }
       let channel = try await adapter.serialChannel(specification: specification, vmID: id)
       let terminal = try SerialTransport(channel: channel)
       do {
