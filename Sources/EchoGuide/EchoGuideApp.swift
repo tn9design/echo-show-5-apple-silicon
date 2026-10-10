@@ -45,6 +45,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   @State private var pendingApproval: ApprovalRequest?
   @State private var adbURL: URL?
   @State private var deviceSerial = ""
+  @State private var recoveryDevices: [ADBDevice] = []
+  @State private var verifiedRecoverySerial: String?
   @State private var checklist: Set<String> = []
 
   private let startupChecks = [
@@ -144,6 +146,13 @@ private enum GuideStep: String, CaseIterable, Identifiable {
         "In UTM, open Virtual Machine → USB Devices and choose the Echo for the workspace identified by this session. A successful attachment still requires guest identity checks."
       )
       Button("Create managed UTM workspace…") { prepareWorkspace() }.disabled(busy || engine == nil)
+      VStack(alignment: .leading, spacing: 8) {
+        Button("Reconcile interrupted workspace creation…") { workspaceLifecycle(.reconcile) }
+        Button("Start owned workspace…") { workspaceLifecycle(.start) }
+        Button("Gracefully stop owned workspace…") { workspaceLifecycle(.stop) }
+      }.disabled(busy || engine == nil)
+      Text("These actions inspect or control only the workspace recorded by this session. Observed VM state does not prove guest or USB readiness. Reconciliation never silently creates a replacement; stop requests are graceful, never forced.")
+        .font(.caption).foregroundStyle(.secondary)
       GroupBox("Workspace result") { selectable(status) }
       Link(
         "Open the installation guide",
@@ -165,19 +174,34 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       Button(adbURL == nil ? "Select platform-tools adb…" : "Change selected adb…") {
         adbURL = selectFile(
           message: "Select the adb executable from your verified Android platform-tools folder.")
+        recoveryDevices = []
+        deviceSerial = ""
       }.disabled(busy)
-      TextField("Exact device serial from adb devices", text: $deviceSerial)
-        .textFieldStyle(.roundedBorder)
+      Button("List connected recovery devices") { listRecoveryDevices() }
+        .disabled(busy || adbURL == nil)
+      Picker("Selected recovery device", selection: $deviceSerial) {
+        Text("Choose a device…").tag("")
+        ForEach(recoveryDevices, id: \.serial) { device in
+          Text("\(device.serial) · \(device.state) · \(device.product ?? "unknown product")")
+            .tag(device.serial).disabled(!device.isRecoveryCandidate)
+        }
+      }
+      .disabled(busy || recoveryDevices.isEmpty)
+      .onChange(of: deviceSerial) { _, _ in verifiedRecoverySerial = nil }
       Text(
-        "Manual serial selection is temporary. Verification checks the exact selected device before recording recovery readiness."
+        "Choose explicitly from the connected devices. Recovery visibility is only a candidate; verification still checks the exact selected device and compatible TWRP. Unauthorized or other-mode devices cannot be selected."
       )
       .font(.caption).foregroundStyle(.secondary)
       HStack {
         Button("Verify this recovery") { verifyRecovery() }
           .disabled(busy || adbURL == nil || deviceSerial.isEmpty || engine == nil)
         Button("Back up and verify partitions…") { backup() }
-          .disabled(busy || adbURL == nil || engine == nil)
+          .disabled(busy || adbURL == nil || engine == nil || verifiedRecoverySerial != deviceSerial || deviceSerial.isEmpty)
       }
+      Button("Reinspect interrupted read-only operation") { recoverInterruptedReads() }
+        .disabled(busy || adbURL == nil || deviceSerial.isEmpty || engine == nil)
+      Text("Reinspection can abandon an interrupted backup or recovery check after verifying the selected recovery again. It never resumes unlocks, wipes, installation, or VM creation.")
+        .font(.caption).foregroundStyle(.secondary)
       GroupBox("Recovery / backup result") { selectable(status) }
       Button("Refresh session status") { refresh() }.disabled(busy || engine == nil)
     case .install:
@@ -270,6 +294,36 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     }
   }
 
+  private enum WorkspaceAction { case reconcile, start, stop }
+
+  private func workspaceLifecycle(_ action: WorkspaceAction) {
+    guard let engine,
+          let utm = selectFile(message: "Select the verified UTM application to inspect this session’s owned workspace.") else { return }
+    busy = true
+    operation = "Checking app-owned workspace…"
+    Task {
+      do {
+        switch action {
+        case .reconcile:
+          switch try await engine.reconcileWorkspace(utm: utm) {
+          case .absent:
+            status = "No matching owned VM was found. Creation intent remains recorded; no replacement was created. Inspect the session before proceeding."
+          case .owned(let info):
+            status = "Owned workspace reconciled. Observed VM state only; guest and USB readiness still need independent verification.\n" + (try encoded(info))
+          }
+        case .start:
+          let info = try await engine.startOwnedWorkspace(utm: utm)
+          status = "Owned workspace start result. Observed VM state only; guest and USB readiness are unverified.\n" + (try encoded(info))
+        case .stop:
+          let info = try await engine.stopOwnedWorkspace(utm: utm)
+          status = "Graceful stop request result. Observed VM state only; a stop request does not guarantee the guest has stopped.\n" + (try encoded(info))
+        }
+      } catch { status = "Workspace lifecycle action stopped: \(error.localizedDescription)" }
+      refresh()
+      busy = false
+    }
+  }
+
   private func verifyRecovery() {
     guard let engine, let adbURL else { return }
     let serial = deviceSerial
@@ -278,9 +332,44 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     Task {
       do {
         try await engine.verifyRecovery(adb: adbURL, serial: serial)
+        verifiedRecoverySerial = serial
         status =
           "Selected recovery passed the engine’s identity checks. Backups must still complete before installation."
       } catch { status = "Recovery verification stopped: \(error.localizedDescription)" }
+      refresh()
+      busy = false
+    }
+  }
+
+  private func listRecoveryDevices() {
+    guard let adbURL else { return }
+    busy = true
+    operation = "Reading connected devices…"
+    deviceSerial = ""
+    verifiedRecoverySerial = nil
+    recoveryDevices = []
+    Task {
+      do {
+        recoveryDevices = try await RecoveryDeviceDiscovery(runner: ProcessRunner(), adbPath: adbURL.path).devices()
+        status = recoveryDevices.isEmpty
+          ? "No ADB devices found. Check wall power, data cable, and recovery mode."
+          : "Choose a recovery candidate explicitly, then verify it. Listing alone does not prove compatibility."
+      } catch { status = "Device discovery stopped: \(error.localizedDescription)" }
+      busy = false
+    }
+  }
+
+  private func recoverInterruptedReads() {
+    guard let engine, let adbURL, !deviceSerial.isEmpty else { return }
+    let serial = deviceSerial
+    busy = true
+    operation = "Reinspecting selected recovery after interruption…"
+    Task {
+      do {
+        try await engine.recoverInterruptedReads(adb: adbURL, serial: serial)
+        verifiedRecoverySerial = serial
+        status = "Recovery reinspected. Eligible interrupted reads were abandoned; no device-writing operation was replayed."
+      } catch { status = "Interrupted-read reinspection stopped: \(error.localizedDescription)" }
       refresh()
       busy = false
     }

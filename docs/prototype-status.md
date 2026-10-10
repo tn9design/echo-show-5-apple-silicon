@@ -10,7 +10,7 @@ Internal pilot code tests identity/rejection parsing and installation stop condi
 
 Still required before Milestone A is complete: fresh managed VM install/input configuration and lifecycle validation; serial bootstrap host-key acquisition and native UI wiring; end-to-end authenticated guest bootstrap; clean-host and guest-restart checks. The cloud-image provisioning path is deferred until this baseline works. VM creation alone never means guest readiness.
 
-Still required before Milestone B is complete: live authorized recovery/backup validation, tested recovery from interruption, and client integration tests. Existing app-owned backup destinations are not overwritten; interrupted partial captures require inspection and a fresh destination.
+Still required before Milestone B is complete: live authorized recovery/backup validation, live interruption checks, and client integration tests. Structured recovery selection and explicit interrupted-read reinspection have offline tests. Existing app-owned backup destinations are not overwritten; interrupted partial captures remain incomplete and require a fresh destination.
 
 Still required before Milestone C: native approved dispatch integration, complete timed unlock orchestration/powered waiting UI, additional independent device trials, and hardware checks. The existing working Echo is not a test target.
 

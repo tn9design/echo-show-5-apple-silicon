@@ -147,7 +147,11 @@ public final class WorkflowEngine: @unchecked Sendable {
   }
   public let store: SessionStore
   public let profile: CompatibilityProfile
-  public init(root: URL = WorkflowEngine.defaultRoot) throws {
+  public let runner: any BinaryCommandRunning
+  public init(
+    root: URL = WorkflowEngine.defaultRoot, runner: any BinaryCommandRunning = ProcessRunner()
+  ) throws {
+    self.runner = runner
     store = try SessionStore(root: root)
     profile = try CompatibilityProfile.bundled()
   }
@@ -168,7 +172,7 @@ public final class WorkflowEngine: @unchecked Sendable {
     }
   }
   public func inspect() async throws -> HostInspection {
-    let r = ProcessRunner()
+    let r = runner
     let arch = try await r.run(executable: "/usr/bin/uname", arguments: ["-m"])
     let os = try await r.run(executable: "/usr/bin/sw_vers", arguments: ["-productVersion"])
     let usb = try await r.run(executable: "/usr/sbin/ioreg", arguments: ["-a", "-p", "IOUSB"])
@@ -339,7 +343,7 @@ extension WorkflowEngine {
       try JSONEncoder().encode(spec).write(to: intent, options: .atomic)
       let id: UUID
       do {
-        id = try await UTMAdapter(runner: ProcessRunner(), application: utm).create(
+        id = try await UTMAdapter(runner: self.runner, application: utm).create(
           specification: spec, verifiedISO: iso)
       } catch GuideError.stopped(let reason)
         where reason == "Automation permission denied before VM creation"
@@ -358,7 +362,7 @@ extension WorkflowEngine {
   }
   public func verifyRecovery(adb: URL, serial: String) async throws {
     try await operation("verify_recovery") {
-      let adapter = try RecoveryAdapter(runner: ProcessRunner(), adbPath: adb.path, serial: serial)
+      let adapter = try RecoveryAdapter(runner: self.runner, adbPath: adb.path, serial: serial)
       try await adapter.verify()
       try self.store.transaction { s in
         if let old = s.device, old.serial != serial {
@@ -382,7 +386,7 @@ extension WorkflowEngine {
         throw GuideError.stopped("Compatible recovery has not been verified")
       }
       let adapter = try RecoveryAdapter(
-        runner: ProcessRunner(), adbPath: adb.path, serial: device.serial)
+        runner: self.runner, adbPath: adb.path, serial: device.serial)
       let results = try await adapter.backup(to: destination)
       try self.store.transaction {
         $0.backupDestination = destination.path
@@ -410,5 +414,141 @@ extension WorkflowEngine {
     }
     return try await backup(
       adb: URL(fileURLWithPath: adb), destination: URL(fileURLWithPath: folder))
+  }
+}
+
+extension WorkflowEngine {
+  /// Explicit reinspection only. Interrupted device writes or VM creation must use their own reconciliation.
+  public func recoverInterruptedReads(adb: URL, serial: String) async throws {
+    try await recoverInterruptedReads(runner: self.runner, adb: adb, serial: serial)
+  }
+  func recoverInterruptedReads(runner: any BinaryCommandRunning, adb: URL, serial: String)
+    async throws
+  {
+    let fd = open(store.root.appendingPathComponent("active.lock").path, O_CREAT | O_RDWR, 0o600)
+    guard fd >= 0 else { throw GuideError.stopped("Cannot acquire operation lock") }
+    defer { close(fd) }
+    guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+      throw GuideError.stopped("An operation is still active; it cannot be abandoned")
+    }
+    defer { flock(fd, LOCK_UN) }
+    let before = try store.transaction { s -> SessionRecord in
+      guard s.device?.serial == serial else {
+        throw GuideError.stopped("Select the same device associated with the interrupted read")
+      }
+      let incomplete = s.operations.filter { $0.completedAt == nil }
+      guard !incomplete.isEmpty,
+        incomplete.allSatisfy({ ["backup", "verify_recovery"].contains($0.action) })
+      else {
+        throw GuideError.stopped(
+          "Only interrupted read/backup operations can be reconciled here; no write or workspace operation is replayed"
+        )
+      }
+      return s
+    }
+    try await RecoveryAdapter(runner: runner, adbPath: adb.path, serial: serial).verify()
+    try store.transaction { s in
+      guard s.id == before.id, s.device == before.device else {
+        throw GuideError.stopped("Session changed during reinspection")
+      }
+      for i in s.operations.indices where s.operations[i].completedAt == nil {
+        guard ["backup", "verify_recovery"].contains(s.operations[i].action) else {
+          throw GuideError.stopped("Session contains an interrupted write")
+        }
+        s.operations[i].completedAt = Date()
+        s.operations[i].result =
+          "interrupted read abandoned after recovery reinspection; partial files preserved"
+      }
+      s.backupManifest = nil
+      s.stagedROMHash = nil
+      s.pendingApproval = nil
+      s.backupDestination = nil
+      s.adbPath = adb.path
+      s.phase = .recovery
+    }
+  }
+}
+
+extension WorkflowEngine {
+  public func reconcileWorkspace(utm: URL) async throws -> VMReconciliation {
+    let fd = open(store.root.appendingPathComponent("active.lock").path, O_CREAT | O_RDWR, 0o600)
+    guard fd >= 0 else { throw GuideError.stopped("Cannot acquire operation lock") }
+    defer { close(fd) }
+    guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+      throw GuideError.stopped("Workspace operation is still active")
+    }
+    defer { flock(fd, LOCK_UN) }
+    let intent = store.root.appendingPathComponent("workspace-intent.json")
+    guard FileManager.default.fileExists(atPath: intent.path) else {
+      throw GuideError.stopped("No app-owned workspace creation intent exists")
+    }
+    let spec = try JSONDecoder().decode(OwnedVMSpecification.self, from: Data(contentsOf: intent))
+    let before = try store.transaction { $0 }
+    guard
+      before.operations.filter({ $0.completedAt == nil }).allSatisfy({
+        $0.action == "prepare_workspace"
+      })
+    else {
+      throw GuideError.stopped(
+        "An interrupted device operation cannot be reconciled as VM creation")
+    }
+    let expected: UUID?
+    if let id = before.vmID {
+      guard let parsed = UUID(uuidString: id) else {
+        throw GuideError.stopped("Invalid recorded VM UUID")
+      }
+      expected = parsed
+    } else {
+      expected = nil
+    }
+    let result = try await UTMAdapter(runner: runner, application: utm).reconcile(
+      specification: spec, registeredVMID: expected)
+    try store.transaction { s in
+      guard s.id == before.id, s.vmID == before.vmID else {
+        throw GuideError.stopped("Workspace binding changed during inspection")
+      }
+      switch result {
+      case .absent: s.phase = .inspectionRequired  // Intent retained; no automatic recreation.
+      case .owned(let info):
+        s.vmID = info.id.uuidString
+        s.phase = .workspace
+        for i in s.operations.indices where s.operations[i].completedAt == nil {
+          s.operations[i].completedAt = Date()
+          s.operations[i].result = "creation reconciled by exact ownership marker and VM UUID"
+        }
+      }
+    }
+    return result
+  }
+  public func inspectOwnedWorkspace(utm: URL) async throws -> OwnedVMInfo {
+    guard case .owned(let info) = try await reconcileWorkspace(utm: utm) else {
+      throw GuideError.stopped("Owned workspace absent; creation intent retained")
+    }
+    return info
+  }
+}
+
+extension WorkflowEngine {
+  public func startOwnedWorkspace(utm: URL) async throws -> OwnedVMInfo {
+    try await changeOwnedWorkspace(utm: utm, start: true)
+  }
+  public func stopOwnedWorkspace(utm: URL) async throws -> OwnedVMInfo {
+    try await changeOwnedWorkspace(utm: utm, start: false)
+  }
+  private func changeOwnedWorkspace(utm: URL, start: Bool) async throws -> OwnedVMInfo {
+    try await operation(start ? "start_workspace" : "stop_workspace") {
+      let state = try self.status()
+      guard let text = state.vmID, let id = UUID(uuidString: text) else {
+        throw GuideError.stopped("No registered app-owned workspace")
+      }
+      let intent = self.store.root.appendingPathComponent("workspace-intent.json")
+      let spec = try JSONDecoder().decode(OwnedVMSpecification.self, from: Data(contentsOf: intent))
+      let adapter = UTMAdapter(runner: self.runner, application: utm)
+      // The adapter rechecks exact ownership and UUID in the same scripting invocation.
+      return try await
+        (start
+        ? adapter.start(specification: spec, vmID: id)
+        : adapter.requestGracefulStop(specification: spec, vmID: id))
+    }
   }
 }
