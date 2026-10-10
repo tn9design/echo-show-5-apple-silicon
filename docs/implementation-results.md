@@ -1,6 +1,10 @@
 # Source preview implementation results
 
-The integrated app, shared core, CLI and MCP build successfully on the development Mac using local temporary build staging. The expanded run passed 66 XCTest cases with no failures. Tests use temporary fixtures, fake runners and isolated host PTYs; they do not connect to an Echo, create a VM, or prove unlock repeatability.
+The integrated app, shared core, CLI and MCP build successfully on the development Mac using local temporary build staging. The expanded run passed 67 XCTest cases with no failures. Tests use temporary fixtures, fake runners and isolated host PTYs; they do not connect to an Echo, create a VM, or prove unlock repeatability.
+
+The project-authored offline protocol helper is bundled and hash-verified, removing its file picker. Client/helper hashes now come from the versioned compatibility profile. A resource test caught a missing Python file in the generated bundle; explicit copy-resource packaging fixes it and the test verifies equality with the source helper.
+
+The Debian-only translation script now installs a persistent read-only virtiofs mount and orders binfmt-support after it. Three offline script checks and shell syntax passed. No guest restart was performed, so persistence is implemented but remains live-unverified.
 
 Experimental app controls now request bootstrap and offline guest validation. Guest trust is persisted privately, omitted from diagnostic exports, and invalidated for readiness after managed start/stop actions. Validation reacquires serial identity before SSH, supports a changed private guest address, rejects a changed host key, stages only hash-verified validation assets and records the offline result. The app can make one bounded serial login attempt as `user` using a memory-only password. Accepted and rejected exchanges pass isolated PTY tests; the actual Debian VM flow remains unverified. A graphical-console login is not used as serial authentication.
 

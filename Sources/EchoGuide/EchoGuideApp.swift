@@ -167,7 +167,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
             .disabled(busy || engine == nil || !guestConsoleReady || guestPassword.isEmpty)
           Button("Validate owned guest and original client…") { validateGuest() }
             .disabled(busy || engine == nil || !guestConsoleReady || guestPassword.isEmpty)
-          Text("For validation, choose the original publisher fastboot binary and this project’s compare-mock.py. The engine checks their pinned hashes and runs an offline protocol test; it does not contact the Echo.")
+          Text("For validation, choose the original publisher fastboot binary. The app uses its bundled, hash-verified protocol helper and checks the binary’s pinned hash before an offline test; it does not contact the Echo.")
             .font(.caption).foregroundStyle(.secondary)
           Text("Successful trust acquisition is separate from Linux translation, client validation, and USB readiness. Do not treat it as an installation prerequisite pass.")
             .font(.caption).foregroundStyle(.secondary)
@@ -339,13 +339,13 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     let password = guestPassword
     guestPassword = ""
     guard let utm = selectFile(message: "Select verified UTM. The app authenticates the owned Debian serial console as user."),
-          let fastboot = selectFile(message: "Select the original publisher Linux fastboot binary from the CHECKERS package; its pinned hash will be checked."),
-          let mock = selectFile(message: "Select tools/compare-mock.py from this EchoGuide source release; its pinned hash will be checked.") else { return }
+          let fastboot = selectFile(message: "Select the original publisher Linux fastboot binary from the CHECKERS package; its pinned hash will be checked.") else { return }
     busy = true
     operation = "Verifying guest trust, translation, and offline client protocol…"
     guestConsoleReady = false
     Task {
       do {
+        let mock = try GuestAdapter.bundledValidationHelper()
         let readiness = try await engine.validateOwnedGuest(utm: utm, fastboot: fastboot, mockScript: mock, password: password)
         status = try encoded(readiness) + "\nThis is guest/client validation only. Echo USB assignment and exact device compatibility still require independent checks."
       } catch { status = "Guest validation stopped: \(error.localizedDescription). Inspect the owned serial console and session before another attempt." }

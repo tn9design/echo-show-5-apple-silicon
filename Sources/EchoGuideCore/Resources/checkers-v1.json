@@ -10,6 +10,12 @@
   "experimental": true,
   "artifacts": [
     {
+      "name": "compare-mock.py",
+      "sha256": "4f453414d4bc53e0e414306fe82a0d05b5679de8ae4c95961c6636927cf44301",
+      "publisherURL": null,
+      "size": null
+    },
+    {
       "name": "UTM-5.0.6.dmg",
       "sha256": "6a722486a660e0ab2cf5826bbeaee0f5963999029366709f5a3048d73b1d7cb1",
       "publisherURL": "https://github.com/utmapp/UTM/releases/download/v5.0.6/UTM.dmg",

@@ -40,6 +40,15 @@ public struct CompatibilityProfile: Codable, Sendable {
   public let romVersion: String
   public let experimental: Bool
   public let artifacts: [Artifact]
+  public func artifact(named name: String) throws -> Artifact {
+    let matches = artifacts.filter { $0.name == name }
+    guard matches.count == 1, let artifact = matches.first,
+      artifact.sha256.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil
+    else {
+      throw GuideError.stopped("Missing, ambiguous or invalid pinned artifact")
+    }
+    return artifact
+  }
   public static func bundled() throws -> Self {
     guard let url = Bundle.module.url(forResource: "checkers-v1", withExtension: "json") else {
       throw GuideError.stopped("Compatibility profile missing")

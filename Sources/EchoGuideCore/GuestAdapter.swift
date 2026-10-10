@@ -16,6 +16,16 @@ public struct GuestReadiness: Codable, Sendable, Equatable {
   public let hostKeyFingerprint: String?
 }
 public struct GuestAdapter: Sendable {
+  public static func bundledValidationHelper() throws -> URL {
+    guard let url = Bundle.module.url(forResource: "compare-mock", withExtension: "py") else {
+      throw GuideError.stopped("Bundled validation helper missing")
+    }
+    let expected = try CompatibilityProfile.bundled().artifact(named: "compare-mock.py").sha256
+    let observed = SHA256.hash(data: try Data(contentsOf: url)).map { String(format: "%02x", $0) }
+      .joined()
+    guard observed == expected else { throw GuideError.stopped("Bundled helper hash mismatch") }
+    return url
+  }
   public let runner: any CommandRunning
   public let ownedVMID: UUID
   public let credentialsDirectory: URL
@@ -142,8 +152,9 @@ public struct GuestAdapter: Sendable {
       }
       return digest.finalize().map { String(format: "%02x", $0) }.joined()
     }
-    guard try hash(fastboot) == "cb3d13b850143da85eb4b2099462514894459213da93d03d6ff4782d927d6e20",
-      try hash(mockScript) == "4f453414d4bc53e0e414306fe82a0d05b5679de8ae4c95961c6636927cf44301"
+    let profile = try CompatibilityProfile.bundled()
+    guard try hash(fastboot) == profile.artifact(named: "fastboot").sha256,
+      try hash(mockScript) == profile.artifact(named: "compare-mock.py").sha256
     else { throw GuideError.stopped("Validation asset hash mismatch") }
     let setup = try await runner.run(
       executable: "/usr/bin/ssh",
@@ -193,9 +204,12 @@ public struct GuestAdapter: Sendable {
           "Obtain owned-serial host-key evidence and create the client identity before connecting.",
         hostKeyFingerprint: nil)
     }
-    // Fixed paths and arguments; no caller-supplied guest shell fragments or device commands.
+    let profile = try CompatibilityProfile.bundled()
+    let clientHash = try profile.artifact(named: "fastboot").sha256
+    let helperHash = try profile.artifact(named: "compare-mock.py").sha256
+    // Only validated hexadecimal profile hashes enter this fixed command.
     let script =
-      "set -eu; test \"$(uname -m)\" = aarch64; test -x /media/rosetta/rosetta; grep -q '^enabled' /proc/sys/fs/binfmt_misc/rosetta; cd /home/user/echoguide; printf '%s  %s\\n' cb3d13b850143da85eb4b2099462514894459213da93d03d6ff4782d927d6e20 fastboot | sha256sum -c - >/dev/null; printf '%s  %s\\n' 4f453414d4bc53e0e414306fe82a0d05b5679de8ae4c95961c6636927cf44301 compare-mock.py | sha256sum -c - >/dev/null; printf '%s  %s\\n' ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7 mock.img | sha256sum -c - >/dev/null; ./fastboot --version; python3 compare-mock.py --fastboot ./fastboot --image mock.img"
+      "set -eu; test \"$(uname -m)\" = aarch64; test -x /media/rosetta/rosetta; grep -q '^enabled' /proc/sys/fs/binfmt_misc/rosetta; cd /home/user/echoguide; printf '%s  %s\\n' \(clientHash) fastboot | sha256sum -c - >/dev/null; printf '%s  %s\\n' \(helperHash) compare-mock.py | sha256sum -c - >/dev/null; printf '%s  %s\\n' ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7 mock.img | sha256sum -c - >/dev/null; ./fastboot --version; python3 compare-mock.py --fastboot ./fastboot --image mock.img"
     let result = try await runner.run(
       executable: "/usr/bin/ssh", arguments: try arguments(command: script))
     guard result.exitCode == 0 else {

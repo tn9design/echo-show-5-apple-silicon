@@ -123,3 +123,14 @@ extension GuestTests {
     XCTAssertTrue(result.stdout.contains("userknownhostsfile /tmp/Application Support/key%h"))
   }
 }
+
+extension GuestTests {
+  func testBundledHelperMatchesPinnedProfileAndSource() throws {
+    let helper = try GuestAdapter.bundledValidationHelper()
+    let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+      .deletingLastPathComponent().deletingLastPathComponent()
+      .appendingPathComponent("tools/compare-mock.py")
+    XCTAssertEqual(try Data(contentsOf: helper), try Data(contentsOf: source))
+    XCTAssertThrowsError(try CompatibilityProfile.bundled().artifact(named: "unknown"))
+  }
+}

@@ -11,5 +11,7 @@ jobs:
         run: swift test
       - name: CLI and MCP protocol smoke
         run: python3 script/test-ai-interfaces.py "$(swift build --show-bin-path)"
+      - name: Translation configuration checks without a guest
+        run: python3 tools/test-linux-translation.py
       - name: Source packaging
         run: bash script/package-release.sh /tmp/EchoGuide-release
