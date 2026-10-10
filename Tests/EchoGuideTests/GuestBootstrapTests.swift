@@ -39,6 +39,13 @@ final class GuestBootstrapTests: XCTestCase {
         frame(request).replacingOccurrences(of: field, with: "\r" + field), for: request))
     }
   }
+  func testFrameStartsOnFreshLineAfterReadlineControls() throws {
+    let request = try GuestBootstrapRequest(ownedVMID: UUID())
+    let prefix = "\r\n\u{1b}[?2004l\r"
+    XCTAssertThrowsError(try GuestBootstrapProtocol.parse(prefix + frame(request), for: request))
+    XCTAssertNoThrow(try GuestBootstrapProtocol.parse(prefix + "\n" + frame(request), for: request))
+    XCTAssertTrue(GuestBootstrapProtocol.consoleCommand(for: request).contains("printf '\\nECHOGUIDE-BEGIN"))
+  }
   func testPublicKeyAuthorizationIsExplicitAndBuilderFixed() throws {
     let readOnly = try GuestBootstrapRequest(ownedVMID: UUID())
     XCTAssertFalse(GuestBootstrapProtocol.consoleCommand(for: readOnly).contains("authorized_keys"))

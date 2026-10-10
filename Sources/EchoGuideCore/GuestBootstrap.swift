@@ -66,8 +66,10 @@ public enum GuestBootstrapProtocol {
       clientInstallation = "client_state=read-only;"
     }
     // Host public key and network discovery precede key installation; failure produces no frame.
+    // Readline may emit bracketed-paste cleanup plus CR before output. Start a fresh
+    // line so those terminal bytes stay outside the strictly checked evidence frame.
     let command =
-      "set -eu; test \"$(id -un)\" = \(request.username); test \"$HOME\" = \(home); test \"$(uname -m)\" = aarch64; host_key=$(cat /etc/ssh/ssh_host_ed25519_key.pub); address=$(ip -4 -o addr show scope global | awk '{split($4,a,\"/\"); split(a[1],b,\".\"); if (b[1]==10 || (b[1]==172 && b[2]>=16 && b[2]<=31) || (b[1]==192 && b[2]==168)) print a[1]}'); test \"$(printf '%s\\n' \"$address\" | wc -l)\" -eq 1; test -n \"$address\"; \(clientInstallation) printf 'ECHOGUIDE-BEGIN %s %s\\nVERSION 1\\nUSER \(request.username)\\nARCH aarch64\\nIPV4 %s\\nHOST_KEY %s\\nCLIENT_AUTH %s\\nECHOGUIDE-END %s %s\\n' '\(owner)' '\(nonce)' \"$address\" \"$host_key\" \"$client_state\" '\(owner)' '\(nonce)'"
+      "set -eu; test \"$(id -un)\" = \(request.username); test \"$HOME\" = \(home); test \"$(uname -m)\" = aarch64; host_key=$(cat /etc/ssh/ssh_host_ed25519_key.pub); address=$(ip -4 -o addr show scope global | awk '{split($4,a,\"/\"); split(a[1],b,\".\"); if (b[1]==10 || (b[1]==172 && b[2]>=16 && b[2]<=31) || (b[1]==192 && b[2]==168)) print a[1]}'); test \"$(printf '%s\\n' \"$address\" | wc -l)\" -eq 1; test -n \"$address\"; \(clientInstallation) printf '\\nECHOGUIDE-BEGIN %s %s\\nVERSION 1\\nUSER \(request.username)\\nARCH aarch64\\nIPV4 %s\\nHOST_KEY %s\\nCLIENT_AUTH %s\\nECHOGUIDE-END %s %s\\n' '\(owner)' '\(nonce)' \"$address\" \"$host_key\" \"$client_state\" '\(owner)' '\(nonce)'"
     // Subshell avoids changing the login shell's error options when bootstrap fails.
     return "( " + command + " )\n"
   }
