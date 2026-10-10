@@ -49,6 +49,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   @State private var verifiedRecoverySerial: String?
   @State private var guestConsoleReady = false
   @State private var guestPassword = ""
+  @State private var backupProgress: BackupProgress?
+  @State private var activeBackupID: UUID?
   @State private var checklist: Set<String> = []
 
   private let startupChecks = [
@@ -75,7 +77,22 @@ private enum GuideStep: String, CaseIterable, Identifiable {
               .disabled(busy)
           }
           if busy {
-            ProgressView(operation)
+            if let progress = backupProgress {
+              VStack(alignment: .leading, spacing: 8) {
+                Text("\(progress.partition ?? "Backup") · \(progress.stage.replacingOccurrences(of: "_", with: " "))")
+                if progress.stage == "capturing", progress.expectedBytes > 0 {
+                  ProgressView(value: Double(min(progress.transferredBytes, progress.expectedBytes)), total: Double(progress.expectedBytes))
+                  Text("\(progress.transferredBytes.formatted()) of \(progress.expectedBytes.formatted()) bytes captured · verification pending")
+                    .font(.caption).foregroundStyle(.secondary)
+                } else {
+                  ProgressView("Checking backup evidence…")
+                }
+                Text("Verified partitions: \(progress.verifiedPartitions)")
+                  .font(.caption).foregroundStyle(.secondary)
+              }
+            } else {
+              ProgressView(operation)
+            }
             if downloadTask != nil {
               Button("Cancel downloads") { downloadTask?.cancel() }
             }
@@ -444,10 +461,22 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     guard panel.runModal() == .OK, let folder = panel.url else { return }
     busy = true
     operation = "Capturing and verifying partition backups…"
+    let backupID = UUID()
+    activeBackupID = backupID
+    backupProgress = nil
     Task {
-      do { status = try encoded(await engine.backup(adb: adbURL, destination: folder)) } catch {
+      do {
+        status = try encoded(await engine.backup(adb: adbURL, destination: folder) { progress in
+          Task { @MainActor in
+            guard activeBackupID == backupID else { return }
+            backupProgress = progress
+          }
+        })
+      } catch {
         status = "Backup stopped: \(error.localizedDescription)"
       }
+      activeBackupID = nil
+      backupProgress = nil
       refresh()
       busy = false
     }

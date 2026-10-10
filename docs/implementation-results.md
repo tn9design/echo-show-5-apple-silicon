@@ -1,6 +1,6 @@
 # Source preview implementation results
 
-The integrated app, shared core, CLI and MCP build successfully on the development Mac using local temporary build staging. The expanded run passed 67 XCTest cases with no failures. Tests use temporary fixtures, fake runners and isolated host PTYs; they do not connect to an Echo, create a VM, or prove unlock repeatability.
+The integrated app, shared core, CLI and MCP build successfully on the development Mac using local temporary build staging. The expanded run passed 71 XCTest cases with no failures. Tests use temporary fixtures, fake runners and isolated host PTYs; they do not connect to an Echo, create a VM, or prove unlock repeatability.
 
 The project-authored offline protocol helper is bundled and hash-verified, removing its file picker. Client/helper hashes now come from the versioned compatibility profile. A resource test caught a missing Python file in the generated bundle; explicit copy-resource packaging fixes it and the test verifies equality with the source helper.
 
@@ -21,3 +21,5 @@ See prototype-status.md for remaining live-validation and implementation gates. 
 Independent reviewers reproduced and then confirmed fixes for stale same-ROM success logs, absent backup manifests, and OpenSSH configuration paths. Revised source archive helper inclusion was independently checked.
 
 The launch script refused to overwrite/relaunch an already-running EchoGuide instance, as intended. The new native window/button flow was not visually verified in this pass.
+
+Measured backup progress is available in the app and private session status. Four offline transfer tests cover intermediate byte counts, corruption, transfer exceptions and mount-restoration failure. Captured bytes never substitute for size/hash verification; completion follows verified images, restored mounts and manifest creation. Live backup progress and UI rendering remain unverified.

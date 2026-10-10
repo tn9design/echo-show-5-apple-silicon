@@ -15,7 +15,7 @@
 ## 2. Finish recovery selection and backup handling
 
 - Validate the implemented structured ADB picker and CHECKERS/TWRP reinspection on a recovery device.
-- Add clear backup progress and validate the implemented explicit interrupted-read recovery path. Never resume a partial capture as verified.
+- Validate the implemented measured backup progress and explicit interrupted-read recovery path on an authorized recovery device. Never resume a partial capture as verified.
 - Exercise the adapter on an authorized compatible recovery device, including mount restoration and device/host hash comparisons.
 
 **Done when:** all five required images and their manifest verify, disconnect/full-disk cases stop safely, and a failed or missing image prevents an installation request. Restoration remains unavailable.

@@ -101,6 +101,7 @@ public struct SessionRecord: Codable, Sendable {
   public var operations: [OperationRecord] = []
   public var backupManifest: String?
   public var guest: GuestWorkspaceRecord?
+  public var backupProgress: BackupProgress?
   public var startupConfirmed = false
   public init(profileID: String) { self.profileID = profileID }
 }
@@ -389,7 +390,10 @@ extension WorkflowEngine {
       }
     }
   }
-  public func backup(adb: URL, destination: URL) async throws -> [VerifiedPartitionBackup] {
+  public func backup(
+    adb: URL, destination: URL,
+    progress: (@Sendable (BackupProgress) -> Void)? = nil
+  ) async throws -> [VerifiedPartitionBackup] {
     try await operation("backup") {
       let state = try self.status()
       guard state.phase == .recovery, let device = state.device else {
@@ -397,7 +401,13 @@ extension WorkflowEngine {
       }
       let adapter = try RecoveryAdapter(
         runner: self.runner, adbPath: adb.path, serial: device.serial)
-      let results = try await adapter.backup(to: destination)
+      try self.store.transaction { $0.backupProgress = nil }
+      let results = try await adapter.backup(
+        to: destination,
+        progress: { update in
+          try? self.store.transaction { $0.backupProgress = update }
+          progress?(update)
+        })
       try self.store.transaction {
         $0.backupDestination = destination.path
         $0.adbPath = adb.path

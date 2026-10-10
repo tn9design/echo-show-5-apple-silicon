@@ -102,6 +102,18 @@ public struct VerifiedPartitionBackup: Codable, Sendable, Equatable {
   public let sha256: String
 }
 
+public struct BackupProgress: Codable, Sendable, Equatable {
+  public let partition: String?
+  public let stage: String
+  public let transferredBytes: UInt64
+  public let expectedBytes: UInt64
+  public let verifiedPartitions: Int
+  public init(partition: String?, stage: String, transferredBytes: UInt64, expectedBytes: UInt64, verifiedPartitions: Int) {
+    self.partition = partition; self.stage = stage; self.transferredBytes = transferredBytes
+    self.expectedBytes = expectedBytes; self.verifiedPartitions = verifiedPartitions
+  }
+}
+
 public struct RecoveryAdapter: Sendable {
   public let runner: any BinaryCommandRunning
   public let adbPath: String
@@ -147,10 +159,11 @@ public struct RecoveryAdapter: Sendable {
       "for n in boot recovery system userdata metadata; do p=$(readlink -f /dev/block/platform/*/by-name/$n); [ -b \"$p\" ] || exit 1; s=$(blockdev --getsize64 \"$p\") || exit 1; printf '%s\\t%s\\t%s\\n' \"$n\" \"$p\" \"$s\"; done"
     return try Self.parsePartitions(await command(["shell", script]))
   }
-  public func backup(to folder: URL) async throws -> [VerifiedPartitionBackup] {
+  public func backup(to folder: URL, progress: (@Sendable (BackupProgress) -> Void)? = nil) async throws -> [VerifiedPartitionBackup] {
     try await verify()
     let partitions = try await discoverPartitions()
-    let required = partitions.reduce(UInt64(0)) { $0 + $1.size } + 512 * 1024 * 1024
+    let expectedBytes = partitions.reduce(UInt64(0)) { $0 + $1.size }
+    let required = expectedBytes + 512 * 1024 * 1024
     let attributes = try FileManager.default.attributesOfFileSystem(forPath: folder.path)
     guard let available = attributes[.systemFreeSize] as? NSNumber,
       available.uint64Value >= required
@@ -207,16 +220,18 @@ public struct RecoveryAdapter: Sendable {
         guard !FileManager.default.fileExists(atPath: destination.path),
           !FileManager.default.fileExists(atPath: partial.path)
         else { throw AdapterError.destinationExists }
+        let capturedBefore = result.reduce(UInt64(0)) { $0 + $1.partition.size }
+        progress?(BackupProgress(partition: partition.name, stage: "hashing", transferredBytes: capturedBefore, expectedBytes: expectedBytes, verifiedPartitions: result.count))
         let sourceHash =
           try await command(["shell", "sha256sum", partition.device]).split(separator: " ").first
           .map(String.init) ?? ""
         guard sourceHash.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else {
           throw AdapterError.mismatch(partition.name)
         }
-        let transfer = try await runner.runToFile(
-          executable: adbPath, arguments: ["-s", serial, "exec-out", "cat", partition.device],
-          destination: partial)
+        let transfer = try await capture(partition: partition, partial: partial, capturedBefore: capturedBefore, expectedBytes: expectedBytes, verifiedPartitions: result.count, progress: progress)
         guard transfer.exitCode == 0 else { throw AdapterError.commandFailed("backup transfer") }
+        let measuredSize = (try? FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber)?.uint64Value ?? 0
+        progress?(BackupProgress(partition: partition.name, stage: "verifying", transferredBytes: capturedBefore + measuredSize, expectedBytes: expectedBytes, verifiedPartitions: result.count))
         let size =
           try FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber
         guard size?.uint64Value == partition.size, try Self.hash(partial) == sourceHash else {
@@ -232,6 +247,7 @@ public struct RecoveryAdapter: Sendable {
         result.append(
           VerifiedPartitionBackup(
             partition: partition, filename: destination.lastPathComponent, sha256: sourceHash))
+        progress?(BackupProgress(partition: partition.name, stage: "verifying", transferredBytes: capturedBefore + partition.size, expectedBytes: expectedBytes, verifiedPartitions: result.count))
       }
     } catch {
       try? await restore()
@@ -246,7 +262,36 @@ public struct RecoveryAdapter: Sendable {
     try manifest.write(to: manifestURL, options: .atomic)
     try FileManager.default.setAttributes(
       [.posixPermissions: 0o600], ofItemAtPath: manifestURL.path)
+    progress?(BackupProgress(partition: nil, stage: "complete", transferredBytes: expectedBytes, expectedBytes: expectedBytes, verifiedPartitions: result.count))
     return result
+  }
+  private func capture(partition: Partition, partial: URL, capturedBefore: UInt64, expectedBytes: UInt64, verifiedPartitions: Int, progress: (@Sendable (BackupProgress) -> Void)?) async throws -> CommandResult {
+    let arguments = ["-s", serial, "exec-out", "cat", partition.device]
+    guard let progress else { return try await runner.runToFile(executable: adbPath, arguments: arguments, destination: partial) }
+    let sample: @Sendable () -> BackupProgress = {
+      let actual = (try? FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber)?.uint64Value ?? 0
+      return BackupProgress(partition: partition.name, stage: "capturing", transferredBytes: capturedBefore + actual, expectedBytes: expectedBytes, verifiedPartitions: verifiedPartitions)
+    }
+    progress(sample())
+    // Polling observes bytes already written; it never estimates a transfer rate or verification.
+    let monitor = Task {
+      let clock = ContinuousClock()
+      let deadline = clock.now.advanced(by: .seconds(1800))
+      while !Task.isCancelled && clock.now < deadline {
+        do { try await Task.sleep(nanoseconds: 100_000_000) } catch { break }
+        guard !Task.isCancelled else { break }
+        progress(sample())
+      }
+    }
+    do {
+      let result = try await runner.runToFile(executable: adbPath, arguments: arguments, destination: partial)
+      monitor.cancel(); await monitor.value
+      progress(sample())
+      return result
+    } catch {
+      monitor.cancel(); await monitor.value
+      throw error
+    }
   }
   public static func hash(_ file: URL) throws -> String {
     let handle = try FileHandle(forReadingFrom: file)
