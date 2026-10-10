@@ -13,14 +13,21 @@ import Foundation
         args.removeFirst(2)
       }
       guard
-        (args.count == 1 && !["prepare-workspace", "reconcile-workspace"].contains(args[0]))
+        (args.count == 1
+          && !["prepare-workspace", "reconcile-workspace", "start-workspace", "stop-workspace"]
+            .contains(args[0]))
           || (args.count == 3 && args.first == "prepare-workspace")
-          || (args.count == 2 && args.first == "reconcile-workspace")
+          || (args.count == 2
+            && ["reconcile-workspace", "start-workspace", "stop-workspace"].contains(args[0]))
       else {
         throw CLIError.usage
       }
       let engine = try WorkflowEngine(root: root)
       switch args[0] {
+      case "start-workspace":
+        try emit(try await engine.startOwnedWorkspace(utm: URL(fileURLWithPath: args[1])))
+      case "stop-workspace":
+        try emit(try await engine.stopOwnedWorkspace(utm: URL(fileURLWithPath: args[1])))
       case "reconcile-workspace":
         switch try await engine.reconcileWorkspace(utm: URL(fileURLWithPath: args[1])) {
         case .absent: try emit(["result": "absent; creation intent retained"])
@@ -55,7 +62,7 @@ import Foundation
   enum CLIError: Error, CustomStringConvertible {
     case usage
     var description: String {
-      "Usage: echo-guide [--state-root DIRECTORY] inspect|status|verify-recovery|backup|request-unlock|request-install|report; or prepare-workspace UTM_APPLICATION DEBIAN_ISO; or reconcile-workspace UTM_APPLICATION. Workspace creation uses only the pinned profile and creates an isolated owned VM. Echo write requests require native app approval; they do not execute a write."
+      "Usage: echo-guide [--state-root DIRECTORY] inspect|status|verify-recovery|backup|request-unlock|request-install|report; or prepare-workspace UTM_APPLICATION DEBIAN_ISO; or reconcile-workspace|start-workspace|stop-workspace UTM_APPLICATION. Workspace creation uses only the pinned profile and creates an isolated owned VM. Echo write requests require native app approval; they do not execute a write."
     }
   }
 }

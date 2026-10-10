@@ -190,7 +190,8 @@ extension UTMAdapter {
       throw GuideError.stopped(
         result.stderr.contains("(-1743)")
           ? "UTM Automation permission denied"
-          : "Owned VM operation failed; preserve creation intent and inspect ownership markers")
+          : "Owned VM operation failed; preserve creation intent and inspect ownership markers. "
+            + String(result.stderr.prefix(2048)))
     }
     let reconciled = try Self.parseInfo(result.stdout, expectedVMID: expectedVMID)
     if action != .info, reconciled == .absent {
