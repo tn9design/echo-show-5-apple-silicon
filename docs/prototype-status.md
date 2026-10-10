@@ -1,6 +1,6 @@
 # Implementation and validation status
 
-This is an experimental source preview, not a finished installer. No live unlock/wipe/install dispatcher is enabled in the app, CLI, or MCP server.
+This is an experimental source preview, not a finished installer. Normal source builds have no enabled unlock/wipe/install dispatcher. An explicit experimental source-build flag connects native human confirmation to the supervised pilot; CLI and MCP cannot approve it. This pilot has not been validated on a live device.
 
 Implemented: shared Swift workflow library; pinned compatibility profile; structured USB enumeration; private persisted sessions and process locks; native approval requests; guided SwiftUI app; profile-based downloads with measured byte progress, cancellation, size/hash validation and safe destinations; CLI and stdio MCP; portable assistant skill; MIT license; source/signing packaging scripts.
 
@@ -20,6 +20,6 @@ Distribution: no signing identities were available in the inspected host keychai
 
 The test count and release evidence are recorded in docs/implementation-results.md. Persistent client configuration examples are untested; the narrow ephemeral Codex smoke above does not establish approval, backup, or installation integration.
 
-An internal native confirmation controller binds the displayed device/action/session/evidence and selected local artifacts. It rechecks expiry and prerequisites after confirmation and invalidates the handoff on cancellation or window closure. Its default gate never presents destructive confirmation. The source-preview dialog only reviews or declines requests; the internal AppKit sheet presenter and composition factory are implemented, but no public app entry point enables pilot dispatch. Native sheet rendering remains unverified.
+An internal native confirmation controller binds the displayed device/action/session/evidence and selected local artifacts. It rechecks expiry and prerequisites after confirmation and invalidates the handoff on cancellation or window closure. Its default gate never presents destructive confirmation. The source-preview dialog only reviews or declines requests; the internal AppKit sheet presenter and composition factory are implemented, with an app entry point gated by the explicit experimental source-build flag. Normal builds remain previews. Native sheet rendering remains unverified.
 
-Recovery-entry installation has action-specific prerequisites: fresh supported host, compatible TWRP, verified backups and staged ROM; it does not require an unlock VM. Unlock still requires fresh authenticated owned guest evidence and its pinned transport. Both remain behind the disabled native pilot gate.
+Recovery-entry installation has action-specific prerequisites: fresh supported host, compatible TWRP, verified backups and staged ROM; it does not require an unlock VM. Unlock still requires fresh authenticated owned guest evidence and its pinned transport. Both remain behind the default-disabled native pilot build gate.

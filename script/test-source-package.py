@@ -19,6 +19,13 @@ with zipfile.ZipFile(archive) as package:
                        or part.startswith('._') for part in path.parts), 'Build metadata in archive'
         assert path.suffix.lower() not in {'.img', '.iso', '.dmg', '.heic'}, 'Device or VM image in archive'
     required = ['Package.swift', 'LICENSE', 'README.md',
+                'Sources/EchoGuide/EchoGuideApp.swift',
+                'Sources/EchoGuideCLI/main.swift',
+                'Sources/EchoGuideMCP/main.swift',
+                'Sources/EchoGuideCore/Workflow.swift',
+                'Sources/EchoGuideCore/NativeApprovalController.swift',
+                'Sources/EchoGuideCore/NativePilotComposition.swift',
+                'Sources/EchoGuideCore/NativePilotCoordinator.swift',
                 'Sources/EchoGuideCore/Resources/checkers-v1.json',
                 'Sources/EchoGuideCore/Resources/compare-mock.py',
                 'skills/echo-guide/SKILL.md', 'script/automation.entitlements',

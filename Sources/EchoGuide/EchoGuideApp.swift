@@ -11,6 +11,26 @@ import SwiftUI
   }
 }
 
+@MainActor private struct OwningWindowCapture: NSViewRepresentable {
+  let changed: @MainActor (NSWindow?) -> Void
+  func makeNSView(context: Context) -> WindowCaptureView { WindowCaptureView(changed: changed) }
+  func updateNSView(_ view: WindowCaptureView, context: Context) {}
+}
+
+@MainActor private final class WindowCaptureView: NSView {
+  let changed: @MainActor (NSWindow?) -> Void
+  init(changed: @escaping @MainActor (NSWindow?) -> Void) {
+    self.changed = changed
+    super.init(frame: .zero)
+  }
+  required init?(coder: NSCoder) { nil }
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    let owning = window
+    Task { @MainActor in changed(owning) }
+  }
+}
+
 private enum GuideStep: String, CaseIterable, Identifiable {
   case inspect = "Check your Mac"
   case prepare = "Prepare downloads"
@@ -34,6 +54,9 @@ private enum GuideStep: String, CaseIterable, Identifiable {
 }
 
 @MainActor struct GuideView: View {
+  @State private var owningWindow: NSWindow?
+  @State private var nativePilot: NativePilotCoordinator?
+  private var experimentalPilot: Bool { NativePilotCoordinator.buildMode == .experimentalPilot }
   @State private var step: GuideStep = .inspect
   @State private var engine: WorkflowEngine?
   @State private var status = "Start with a read-only check of this Mac and its USB devices."
@@ -97,6 +120,10 @@ private enum GuideStep: String, CaseIterable, Identifiable {
               }.padding(8)
             }
           }
+          if experimentalPilot {
+            Label("EXPERIMENTAL PILOT SOURCE BUILD — native confirmations can authorize irreversible device changes and permanent damage. Fresh environment proof and matching prerequisites remain required.", systemImage: "exclamationmark.triangle.fill")
+              .foregroundStyle(.orange).font(.callout.bold())
+          }
           stageContent
           if pendingApproval != nil {
             Button("Review pending native approval…") { reviewPendingApproval() }
@@ -125,7 +152,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
           }
           Divider()
           Text(
-            "Experimental source preview. Preparation, recovery inspection, verified backups, and verified ROM copying are available as pilot integration. Unlock, wipes, installation, and reboot are unavailable in this preview; a timeout never proves an unlock."
+            experimentalPilot ? "Experimental pilot source build. Native confirmations may authorize irreversible writes; results require independent verification. A timeout never proves an unlock." : "Experimental source preview. Preparation, recovery inspection, verified backups, and verified ROM copying are available as pilot integration. Unlock, wipes, installation, and reboot are unavailable in this preview; a timeout never proves an unlock."
           )
           .font(.footnote).foregroundStyle(.secondary)
           DisclosureGroup("Private local session details") {
@@ -136,6 +163,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       }
     }
     .frame(minWidth: 850, minHeight: 620)
+    .background(OwningWindowCapture { owningWindow = $0 }.frame(width: 0, height: 0))
+    .onDisappear { nativePilot?.close() }
     .task { initialize() }
     .onReceive(
       DistributedNotificationCenter.default().publisher(
@@ -245,6 +274,11 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       Button("Verify selected Echo and exact bootloader build") { identifyFastboot() }
         .disabled(busy || engine == nil || fastbootSerial.isEmpty || !guestIdentificationReady)
       Text("If guest enumeration is empty, check the data cable and accessory assignment. A USB name or fastboot serial alone does not prove compatibility. Complete guest validation first if listing is disabled.").font(.caption).foregroundStyle(.secondary)
+      Text(!guestIdentificationReady ? "Next: return to Linux workspace and validate the owned guest and original client." : fastbootCandidates.isEmpty ? "Next: list fastboot devices after assigning the Echo to the owned workspace." : fastbootSerial.isEmpty ? "Next: explicitly select the Echo from the list." : !fastbootSupported ? "Next: verify the selected Echo’s exact bootloader build." : (experimentalPilot ? "Supported identity verified. A native experimental confirmation is required before any unlock attempt." : "Supported identity verified. This preview can review an unlock request but cannot perform an unlock."))
+        .font(.callout)
+      Button(experimentalPilot ? "Request native experimental unlock confirmation…" : "Review unlock request in source preview…") { requestApproval(.unlock) }
+        .disabled(busy || engine == nil || !fastbootSupported)
+      Text(experimentalPilot ? "Continue to Recovery and backups only when compatible TWRP is independently verified. A completed attempt or timeout is never proof of unlock." : "Continue to Recovery and backups only when the Echo independently shows compatible TWRP. A request review does not unlock or enter recovery.").font(.caption).foregroundStyle(.secondary)
       GroupBox("Identification result") { selectable(status) }
     case .recovery:
       Text(
@@ -278,6 +312,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
         "Choose explicitly from the connected devices. Recovery visibility is only a candidate; verification still checks the exact selected device and compatible TWRP. Unauthorized or other-mode devices cannot be selected."
       )
       .font(.caption).foregroundStyle(.secondary)
+      Text(adbURL == nil ? "Next: select the platform-tools ADB executable." : recoveryDevices.isEmpty ? "Next: list connected recovery devices." : deviceSerial.isEmpty ? "Next: explicitly select the Echo." : verifiedRecoverySerial != deviceSerial ? "Next: verify the selected recovery." : "Next: choose a private backup destination and capture all required partitions.")
+        .font(.callout)
       HStack {
         Button("Verify this recovery") { verifyRecovery() }
           .disabled(busy || adbURL == nil || deviceSerial.isEmpty || engine == nil)
@@ -292,13 +328,8 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       Button("Refresh session status") { refresh() }.disabled(busy || engine == nil)
     case .install:
       Text(
-        "Unlock and installation are separate approvals. Each must show the exact selected device and action. The backend rejects requests with missing or changed prerequisites."
+        experimentalPilot ? "After compatible recovery and verified backups, select and stage the pinned ROM below. Native confirmation may authorize erasure and installation in this experimental pilot build." : "After compatible recovery and verified backups, select and stage the pinned ROM below. Then review the exact erase/install request. This source preview cannot execute it."
       )
-      HStack {
-        Button("Request unlock approval…") { requestApproval(.unlock) }
-        Button("Request installation approval…") { requestApproval(.install) }
-          .disabled(!installationReady)
-      }.disabled(busy || engine == nil)
       GroupBox("Prepare the pinned ROM after verified backups") {
         VStack(alignment: .leading, spacing: 10) {
           Text("Choose the publisher’s LineageOS 18.1 CHECKERS v0.7 ZIP. EchoGuide checks its exact size and hash before copying it to recovery.")
@@ -306,10 +337,12 @@ private enum GuideStep: String, CaseIterable, Identifiable {
             .disabled(busy || engine == nil || !backedUpForStaging)
           Button("Copy ROM and verify device hash") { stageROM() }
             .disabled(busy || engine == nil || !backedUpForStaging || !romConfigured)
-          Text(installationReady ? "Pinned ROM verified on the device; native installation approval may be requested." : "Installation approval requires verified backups and a verified device-side ROM.")
+          Text(!backedUpForStaging ? "Next: complete recovery verification and all required backups." : !romConfigured ? "Next: choose and verify the pinned publisher ROM." : !installationReady ? "Next: copy the ROM and independently verify its device-side hash." : (experimentalPilot ? "Pinned ROM verified on the device; native experimental installation confirmation may be requested." : "Pinned ROM verified on the device; the native source-preview request may be reviewed."))
             .font(.caption).foregroundStyle(.secondary)
         }.padding(8)
       }
+      Button(experimentalPilot ? "Request native experimental installation confirmation…" : "Review installation request in source preview…") { requestApproval(.install) }
+        .disabled(busy || engine == nil || !installationReady)
       GroupBox("After a verified installation") {
         VStack(alignment: .leading, spacing: 10) {
           Text(
@@ -563,7 +596,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       session = try encoded(record)
       pendingApproval = record.pendingApproval
       workspaceRegistered = record.vmID != nil
-      if record.phase != .identified || record.device?.serial != fastbootSerial { fastbootSupported = false }
+      if record.phase != .identified || record.device?.serial != fastbootSerial || record.device?.product != engine.profile.product || record.device?.lkBuild != engine.profile.lkBuild { fastbootSupported = false }
       guestIdentificationReady = record.guest?.ready == true && record.backupManifest == nil && [.workspace, .identified, .inspectionRequired].contains(record.phase)
       backedUpForStaging = record.phase == .backedUp && record.backupManifest != nil
       romConfigured = record.configuredROMPath != nil
@@ -691,6 +724,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
 
   private func presentApproval(_ request: ApprovalRequest) {
     guard let engine else { return }
+    if experimentalPilot { presentPilotApproval(request); return }
     do {
       let alert = NSAlert()
       alert.alertStyle = .warning
@@ -713,6 +747,46 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       status = "Approval stopped: \(error.localizedDescription)"
       refresh()
     }
+  }
+
+  private func presentPilotApproval(_ request: ApprovalRequest) {
+    guard let engine, !busy else { return }
+    do {
+      let current = try engine.status()
+      guard current.pendingApproval?.id == request.id else {
+        status = "The pending request changed. Refresh and review the current request; no operation ran."
+        refresh(); return
+      }
+    } catch { status = "Native request inspection stopped: \(error.localizedDescription)"; return }
+    var selectedUTM: URL?
+    var selectedPayload: URL?
+    if request.action == .unlock {
+      guard let utm = selectFile(message: "Experimental unlock: select the verified UTM application for fresh exact-workspace ownership checks."),
+            let payload = selectFile(message: "Experimental unlock: select the original developer’s pinned CHECKERS unlock payload. The backend verifies its exact hash before native confirmation.") else { return }
+      selectedUTM = utm; selectedPayload = payload
+    }
+    do {
+      let coordinator = try NativePilotCoordinator.make(engine: engine, window: owningWindow)
+      nativePilot = coordinator
+      busy = true
+      operation = "Experimental native review and checked operation. Keep Echo wall power connected; an ambiguous result requires inspection."
+      Task {
+        defer { nativePilot = nil; busy = false; refresh() }
+        do {
+          let result = try await coordinator.review(requestID: request.id, utm: selectedUTM, unlockPayload: selectedPayload)
+          switch result {
+          case .declined:
+            status = "Native request declined; no operation was authorized."
+          case .recoveryInspectionRequired(let attempts, let reason):
+            status = "Recovery inspection required after \(attempts) bounded attempt(s): \(reason). This is not unlock success. Keep wall power connected and independently verify compatible TWRP before any further write."
+            step = .recovery
+          case .installedAwaitingUserStartup:
+            status = "Installation evidence verified. Android setup/home-screen startup still requires your personal confirmation; individual hardware checks remain unverified."
+            step = .install
+          }
+        } catch { status = "Experimental native operation stopped: \(error.localizedDescription). Inspect saved state; do not replay an interrupted write." }
+      }
+    } catch { status = "Native experimental review unavailable: \(error.localizedDescription)" }
   }
 
   private func previewReport() {
