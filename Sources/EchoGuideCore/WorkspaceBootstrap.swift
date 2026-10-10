@@ -9,9 +9,11 @@ public struct GuestWorkspaceRecord: Codable, Sendable {
 }
 
 extension WorkflowEngine {
-  /// Explicit action after the user logs into this owned VM's console as `user`.
+  /// Explicit action using a memory-only password or an already authenticated serial shell.
   /// Acquires trust through serial before any SSH operation; never accepts a caller's host key.
-  public func bootstrapOwnedGuest(utm: URL) async throws -> GuestBootstrapEvidence {
+  public func bootstrapOwnedGuest(utm: URL, password: String? = nil) async throws
+    -> GuestBootstrapEvidence
+  {
     try await operation("bootstrap_guest") {
       let state = try self.status()
       guard let text = state.vmID, let id = UUID(uuidString: text) else {
@@ -24,6 +26,7 @@ extension WorkflowEngine {
       let channel = try await adapter.serialChannel(specification: specification, vmID: id)
       let terminal = try SerialTransport(channel: channel)
       do {
+        if let password { try await SerialLogin.authenticate(terminal, password: password) }
         let observation = try GuestBootstrapRequest(ownedVMID: id)
         let initial = try await Self.bootstrapExchange(terminal, request: observation)
         let guest = try GuestAdapter(
@@ -62,7 +65,8 @@ extension WorkflowEngine {
     }
   }
   /// Refreshes serial trust after restarts before staging the two pinned public validation assets.
-  public func validateOwnedGuest(utm: URL, fastboot: URL, mockScript: URL) async throws
+  public func validateOwnedGuest(utm: URL, fastboot: URL, mockScript: URL, password: String? = nil)
+    async throws
     -> GuestReadiness
   {
     try await operation("validate_guest") {
@@ -79,6 +83,7 @@ extension WorkflowEngine {
       let terminal = try SerialTransport(channel: channel)
       let evidence: GuestBootstrapEvidence
       do {
+        if let password { try await SerialLogin.authenticate(terminal, password: password) }
         evidence = try await Self.bootstrapExchange(
           terminal,
           request: GuestBootstrapRequest(ownedVMID: saved.vmID))

@@ -85,8 +85,14 @@ public actor SerialTransport {
   public func read(until marker: Data, timeout: TimeInterval = 20, limit: Int = 65_536)
     async throws -> Data
   {
-    guard !marker.isEmpty, marker.count <= 1024, timeout > 0, timeout <= 60,
-      limit >= marker.count, limit <= 262_144
+    try await read(untilAny: [marker], timeout: timeout, limit: limit)
+  }
+  public func read(untilAny markers: [Data], timeout: TimeInterval = 20, limit: Int = 65_536)
+    async throws -> Data
+  {
+    guard !markers.isEmpty, markers.count <= 8,
+      markers.allSatisfy({ !$0.isEmpty && $0.count <= 1024 && $0.count <= limit }),
+      timeout > 0, timeout <= 60, limit <= 262_144
     else { throw GuideError.stopped("Invalid bounded serial read") }
     guard !reading else { throw GuideError.stopped("Serial read already active") }
     reading = true
@@ -101,7 +107,7 @@ public actor SerialTransport {
       let count = Darwin.read(descriptor, &buffer, min(buffer.count, limit - output.count))
       if count > 0 {
         output.append(contentsOf: buffer.prefix(count))
-        if output.range(of: marker) != nil { return output }
+        if markers.contains(where: { output.range(of: $0) != nil }) { return output }
         guard output.count < limit else {
           throw GuideError.stopped("Serial response exceeded limit")
         }

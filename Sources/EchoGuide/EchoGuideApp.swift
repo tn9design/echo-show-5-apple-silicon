@@ -48,6 +48,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   @State private var recoveryDevices: [ADBDevice] = []
   @State private var verifiedRecoverySerial: String?
   @State private var guestConsoleReady = false
+  @State private var guestPassword = ""
   @State private var checklist: Set<String> = []
 
   private let startupChecks = [
@@ -154,14 +155,18 @@ private enum GuideStep: String, CaseIterable, Identifiable {
       }.disabled(busy || engine == nil)
       Text("These actions inspect or control only the workspace recorded by this session. Observed VM state does not prove guest or USB readiness. Reconciliation never silently creates a replacement; stop requests are graceful, never forced.")
         .font(.caption).foregroundStyle(.secondary)
-      GroupBox("Experimental developer integration: serial guest bootstrap") {
+      GroupBox("Experimental pilot: authenticate the Linux guest") {
         VStack(alignment: .leading, spacing: 10) {
-          Text("Log in as user on the app-owned VM’s SERIAL console and leave that serial channel at a shell prompt. Logging into the graphical Debian display does not authenticate the serial channel. This preview does not yet provide native serial login; these controls are for developers who have established the serial shell. The bootstrap action obtains the guest host key through the owned serial channel and installs this workspace’s public SSH key for user. It does not enter your password or write to the Echo.")
-          Toggle("I established a user shell on the owned SERIAL console", isOn: $guestConsoleReady)
+          Text("Finish Debian setup with the account named user and the SSH server installed. Enter that temporary Linux account password below. The app logs in through the app-owned serial console, obtains the guest host key, and installs this workspace’s public SSH key for user. Graphical-display login alone is insufficient. These actions do not write to the Echo.")
+          Toggle("The user account and SSH server setup are complete", isOn: $guestConsoleReady)
+          SecureField("Temporary Linux user password", text: $guestPassword)
+            .textFieldStyle(.roundedBorder).disabled(busy)
+          Text("The password is used in memory for this action, cleared from the field immediately, and never saved to the session or diagnostics. Re-enter it for another action.")
+            .font(.caption).foregroundStyle(.secondary)
           Button("Bootstrap owned guest SSH…") { bootstrapGuest() }
-            .disabled(busy || engine == nil || !guestConsoleReady)
+            .disabled(busy || engine == nil || !guestConsoleReady || guestPassword.isEmpty)
           Button("Validate owned guest and original client…") { validateGuest() }
-            .disabled(busy || engine == nil || !guestConsoleReady)
+            .disabled(busy || engine == nil || !guestConsoleReady || guestPassword.isEmpty)
           Text("For validation, choose the original publisher fastboot binary and this project’s compare-mock.py. The engine checks their pinned hashes and runs an offline protocol test; it does not contact the Echo.")
             .font(.caption).foregroundStyle(.secondary)
           Text("Successful trust acquisition is separate from Linux translation, client validation, and USB readiness. Do not treat it as an installation prerequisite pass.")
@@ -312,14 +317,16 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   private enum WorkspaceAction { case reconcile, start, stop }
 
   private func bootstrapGuest() {
-    guard guestConsoleReady, let engine,
-          let utm = selectFile(message: "Select verified UTM. Continue only with the app-owned Debian SERIAL console logged in as user; this installs the workspace public SSH key.") else { return }
+    guard guestConsoleReady, !guestPassword.isEmpty, let engine else { return }
+    let password = guestPassword
+    guestPassword = ""
+    guard let utm = selectFile(message: "Select verified UTM. The app logs into the owned Debian serial console as user and installs the workspace public SSH key.") else { return }
     busy = true
     operation = "Acquiring guest trust through the owned serial channel…"
     guestConsoleReady = false
     Task {
       do {
-        let evidence = try await engine.bootstrapOwnedGuest(utm: utm)
+        let evidence = try await engine.bootstrapOwnedGuest(utm: utm, password: password)
         status = "Guest host trust acquired through the owned serial channel.\nOwned VM: \(evidence.trust.ownedVMID.uuidString)\nGuest address (private): \(evidence.address)\nWorkspace public SSH key authorized: \(evidence.clientAuthorized ? "yes" : "no")\nTranslation, original client, and USB readiness are not yet verified."
       } catch { status = "Guest bootstrap stopped: \(error.localizedDescription). Inspect the owned serial console before retrying; interrupted key setup is not replayed automatically." }
       refresh()
@@ -328,8 +335,10 @@ private enum GuideStep: String, CaseIterable, Identifiable {
   }
 
   private func validateGuest() {
-    guard guestConsoleReady, let engine,
-          let utm = selectFile(message: "Select verified UTM with the owned Debian SERIAL console logged in as user."),
+    guard guestConsoleReady, !guestPassword.isEmpty, let engine else { return }
+    let password = guestPassword
+    guestPassword = ""
+    guard let utm = selectFile(message: "Select verified UTM. The app authenticates the owned Debian serial console as user."),
           let fastboot = selectFile(message: "Select the original publisher Linux fastboot binary from the CHECKERS package; its pinned hash will be checked."),
           let mock = selectFile(message: "Select tools/compare-mock.py from this EchoGuide source release; its pinned hash will be checked.") else { return }
     busy = true
@@ -337,7 +346,7 @@ private enum GuideStep: String, CaseIterable, Identifiable {
     guestConsoleReady = false
     Task {
       do {
-        let readiness = try await engine.validateOwnedGuest(utm: utm, fastboot: fastboot, mockScript: mock)
+        let readiness = try await engine.validateOwnedGuest(utm: utm, fastboot: fastboot, mockScript: mock, password: password)
         status = try encoded(readiness) + "\nThis is guest/client validation only. Echo USB assignment and exact device compatibility still require independent checks."
       } catch { status = "Guest validation stopped: \(error.localizedDescription). Inspect the owned serial console and session before another attempt." }
       refresh()
