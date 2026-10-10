@@ -4,8 +4,8 @@
 
 ## 1. Make the Linux workspace usable
 
-- Finish account setup in the second fresh workspace: leave the root password empty, use the guided account name, and enter a unique temporary password yourself. Stop at the time-zone screen for the next guided step. The VM remains at this handoff; no credential was entered by the assistant.
-- Complete the pinned Debian installation and authenticate its serial bootstrap. Two distinct managed VM identities are recorded; the second passed checked startup and keyboard input, but neither has established fresh guest readiness.
+- Authenticate the completed disposable Debian installation through the app’s serial bootstrap. Account setup was completed by the user, installation finished, and the guest visibly booted to its login prompt.
+- Use the isolated app session (`--state-root ABSOLUTE_DIRECTORY`) to avoid changing an existing installation session. Two distinct managed VM identities are recorded, but neither has established fresh authenticated guest readiness.
 - Enable translation and confirm it survives a guest restart.
 - Validate the implemented native serial login on the pinned Debian baseline. It makes one attempt using the temporary password entered in the app; failed or unknown prompts stop without retry.
 - Validate the implemented account/key bootstrap, verified asset staging and readiness controls in the app on fresh VMs, including restarts and changed guest addresses.

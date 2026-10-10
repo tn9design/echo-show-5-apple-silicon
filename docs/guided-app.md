@@ -30,4 +30,4 @@ Then add isolated guest provisioning, offline mock tests and recovery backup aut
 - Keep sensitive backups local; support export is opt-in and redacted.
 - A power warning and post-exploit wait cannot be dismissed as mere UI polish.
 
-This is a proposal, not an implemented or tested application. The current scripts preserve the single successful path but do not establish universal compatibility.
+This page describes the intended complete experience. A source preview now implements preparation, checked recovery/backup operations and a gated native installer pilot; live validation is incomplete. See [current status](prototype-status.md) and [test evidence](implementation-results.md) before using it. The earlier manual installation establishes one successful path, not universal compatibility.
