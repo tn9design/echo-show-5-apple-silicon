@@ -4,20 +4,45 @@ A working-path guide and starter tools for installing LineageOS on the **first-g
 
 One device reached TWRP, successfully installed LineageOS 18.1 v0.7, completed setup and connected to Wi-Fi. This is experimental: repeatability and full hardware functionality remain untested.
 
-## Guided source preview
+## Start here: choose your next action
 
-A native SwiftUI app, shared Swift workflow engine, CLI and local MCP server are included. Run `bash script/build_and_run.sh` with Swift 6/Xcode tools installed. The app provides verified downloads, structured host inspection, managed-VM creation and recovery/backup adapter controls. Guest preparation and live backup integration still need validation. Unlock/wipe/install execution is disabled in this preview.
+**Want to install LineageOS on your Echo?** Start with the [manual installation walkthrough](docs/install-guide.md). That is the path used in our successful installation. The app preview cannot complete an installation yet.
 
-- [Implementation status](docs/prototype-status.md) and [test evidence](docs/implementation-results.md).
-- [AI setup and portable skill](docs/ai-integration.md).
-- Build a shareable source preview with `bash script/package-release.sh`.
+**Want to try the app or help finish it?** Follow the steps below. The [next implementation steps](docs/next-steps.md) explain exactly what to build and verify afterward.
 
-## Start here
+### Try the source preview in order
 
-- [Installation walkthrough](docs/install-guide.md): what to connect, click and verify.
-- [Guided Mac app proposal](docs/guided-app.md): how we can remove the manual work.
-- [Evidence and remaining questions](docs/validation.md): what we know actually worked.
-- [Verified download hashes](hashes.json).
+1. **Get the project.** Open Terminal and run:
+
+   ```bash
+   git clone https://github.com/tn9design/echo-show-5-apple-silicon.git
+   cd echo-show-5-apple-silicon
+   ```
+
+2. **Check your build tools.** Run `swift --version`. You need Swift 6 or later from Xcode or its Command Line Tools. If Swift is missing, run `xcode-select --install`, finish Apple's installer, then check again.
+3. **Open the app.** Run `bash script/build_and_run.sh --verify`. If EchoGuide is already running, finish any operation and quit it first; the script will not force-close it.
+4. **Check your Mac.** Select **Check your Mac**, then click **Inspect this Mac and USB**. Read the host result and USB candidates. USB visibility does not establish a supported Echo model. The installation backend requires Apple Silicon and macOS 27 or later; fresh-host validation remains outstanding.
+5. **Prepare the downloads.** Select **Prepare downloads**, choose a folder, and let the app download and verify UTM and the ROM. Wait for the verified-download result. This does not install either download.
+6. **Review the remaining setup.** Open **Linux workspace** and read the guided input-device, translation and USB-assignment steps. VM creation and guest bootstrap are pilot integrations, not a validated automatic setup. Follow the manual walkthrough if you intend to install today.
+7. **Keep device changes separate.** Recovery verification and backup controls are intended for compatible TWRP and still need live validation. Unlock, wipe and installation execution are disabled in the app, CLI and MCP preview. Do not interpret a pending approval as an operation that ran.
+8. **Share useful feedback.** Open **Troubleshooting**, create a redacted diagnostic preview, review it, and save it. Include the step where you stopped and what you expected. Never upload raw backups or private session details.
+
+To add an assistant after the app is set up, follow [AI setup and the portable skill](docs/ai-integration.md). For current limits and test results, read [implementation status](docs/prototype-status.md) and [test evidence](docs/implementation-results.md).
+
+## Installation checkpoints
+
+Follow the [detailed walkthrough](docs/install-guide.md) in this order. Advance only after the current checkpoint is established:
+
+| Step | Action | Result needed before continuing |
+|---|---|---|
+| 1 | Prepare the Mac, files and isolated Linux VM | Pinned files verified; translation and offline client test pass |
+| 2 | Connect wall power and the Micro-USB data cable; assign USB | Linux sees the selected Echo |
+| 3 | Check device identity | CHECKERS and the exact supported LK build match |
+| 4 | Decide whether to run the reviewed experimental unlock | Compatible TWRP is independently verified; timeout alone is insufficient |
+| 5 | Capture private backups | Required images have matching sizes and hashes |
+| 6 | Stage and verify the ROM, then approve erasure | Backups and device-side ROM are verified |
+| 7 | Wipe data/system/cache, install, save the log, then reboot | Current installer success is verified before reboot |
+| 8 | Complete Android setup | Home screen reached; hardware checks recorded separately |
 
 Project-authored code and documentation are MIT licensed; upstream tools retain their own licenses.
 
@@ -29,4 +54,4 @@ Start with documentation corrections, offline tests and read-only device checks.
 
 This project credits amonet developers k4y0z and R0rt1z2, the amazon-oss ROM maintainers, UTM and Debian. It wraps their work; it does not claim authorship of their exploit or ROM.
 
-Published as an experimental starter kit. VM creation, first USB assignment and partition backups remain manual; the app currently automates preflight checks and verified UTM/ROM downloads. See the walkthrough before using it. No license has been selected yet.
+Published as an experimental source preview. The manual walkthrough and app preview have different validation levels; see the linked status document before choosing either path.
